@@ -1,0 +1,16 @@
+gate:
+  id: gate_direction
+  status: WAITING_FOR_USER
+  gate_type: product_direction
+question: Which product direction should be selected?
+options:
+  - id: option_a
+    label: Direction A
+  - id: option_b
+    label: Direction B
+recommendation:
+  option: option_b
+input_artifact_refs: [ART-OPPORTUNITY-001@1]
+risks: [The evidence may become stale.]
+proposed_structured_diff_ref: null
+allowed_actions: [APPROVE, MODIFY, CANCEL, SELECT_OTHER, REQUEST_MORE_RESEARCH]

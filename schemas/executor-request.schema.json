@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Executor Request Contract",
+  "type": "object",
+  "required": ["executor_request"],
+  "properties": {
+    "executor_request": {
+      "type": "object",
+      "required": ["schema_version", "run_id", "node_id", "attempt_id", "adapter_type", "skill_ref", "input_artifact_refs", "profile_ref", "research_contract_ref", "permissions", "budget"],
+      "properties": {
+        "schema_version": {"$ref": "common.schema.json#/$defs/schema_version"},
+        "run_id": {"$ref": "common.schema.json#/$defs/run_id"},
+        "node_id": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "attempt_id": {"$ref": "common.schema.json#/$defs/attempt_id"},
+        "adapter_type": {"$ref": "common.schema.json#/$defs/adapter_type"},
+        "skill_ref": {"type": "string", "pattern": "^[a-z][a-z0-9-]*@0\\.1\\.0$"},
+        "input_artifact_refs": {"$ref": "common.schema.json#/$defs/artifact_refs"},
+        "profile_ref": {"type": "string", "pattern": "^(developer_tool|ai_agent_product|consumer_app|b2b_saas)@0\\.1\\.0$"},
+        "research_contract_ref": {
+          "anyOf": [
+            {"$ref": "common.schema.json#/$defs/artifact_ref"},
+            {"type": "null"}
+          ]
+        },
+        "permissions": {
+          "type": "object",
+          "required": ["external_access", "workspace_write_paths", "secrets"],
+          "properties": {
+            "external_access": {"enum": ["none", "read_only"]},
+            "workspace_write_paths": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/relative_path"}},
+            "secrets": {"const": "forbidden"}
+          },
+          "additionalProperties": false
+        },
+        "budget": {
+          "type": "object",
+          "required": ["timeout_minutes", "max_sources", "token_limit", "cost_limit"],
+          "properties": {
+            "timeout_minutes": {"type": "integer", "minimum": 1},
+            "max_sources": {"type": "integer", "minimum": 0},
+            "token_limit": {"type": ["integer", "null"], "minimum": 1},
+            "cost_limit": {"type": ["number", "null"], "minimum": 0}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

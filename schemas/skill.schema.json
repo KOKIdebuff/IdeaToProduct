@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Machine-Readable Skill Contract",
+  "type": "object",
+  "required": ["skill", "inputs", "reads", "writes", "evidence", "permissions", "budget", "executor", "completion", "on_failure"],
+  "properties": {
+    "skill": {
+      "type": "object",
+      "required": ["id", "version", "type"],
+      "properties": {
+        "id": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "version": {"$ref": "common.schema.json#/$defs/schema_version"},
+        "type": {"enum": ["research", "transform", "analysis", "verifier", "generator", "planner"]}
+      },
+      "additionalProperties": false
+    },
+    "inputs": {
+      "type": "object",
+      "required": ["required"],
+      "properties": {
+        "required": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/machine_id"}},
+        "optional": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/machine_id"}}
+      },
+      "additionalProperties": false
+    },
+    "reads": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/relative_path"}},
+    "writes": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/relative_path"}},
+    "evidence": {
+      "type": "object",
+      "required": ["required", "provenance_required"],
+      "properties": {
+        "required": {"type": "boolean"},
+        "provenance_required": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "permissions": {
+      "type": "object",
+      "required": ["external_access", "workspace_write", "secrets"],
+      "properties": {
+        "external_access": {"enum": ["none", "read_only"]},
+        "workspace_write": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/relative_path"}},
+        "secrets": {"const": "forbidden"}
+      },
+      "additionalProperties": false
+    },
+    "budget": {
+      "type": "object",
+      "required": ["timeout_minutes", "max_sources"],
+      "properties": {
+        "timeout_minutes": {"type": "integer", "minimum": 1},
+        "max_sources": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "executor": {
+      "type": "object",
+      "required": ["allowed_adapter_types"],
+      "properties": {
+        "allowed_adapter_types": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/adapter_type"}}
+      },
+      "additionalProperties": false
+    },
+    "completion": {"type": "object", "additionalProperties": true},
+    "on_failure": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/machine_id"}}
+  },
+  "additionalProperties": false
+}

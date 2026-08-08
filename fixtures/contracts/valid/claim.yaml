@@ -1,0 +1,8 @@
+claim:
+  id: CL-001
+  statement: The example capability is documented by its publisher.
+  category: product
+  status: VALIDATED
+  confidence: HIGH
+  evidence_ids: [EV-001]
+  contradiction_ids: []

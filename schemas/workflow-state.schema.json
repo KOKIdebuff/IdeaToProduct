@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Runtime Workflow State Contract",
+  "$defs": {
+    "node_state": {
+      "type": "object",
+      "required": ["status", "attempt_count", "artifact_refs"],
+      "properties": {
+        "status": {"$ref": "common.schema.json#/$defs/node_status"},
+        "attempt_count": {"type": "integer", "minimum": 0},
+        "artifact_refs": {"$ref": "common.schema.json#/$defs/artifact_refs"},
+        "verification_result": {"$ref": "common.schema.json#/$defs/verification_result"},
+        "gate_decision": {"$ref": "common.schema.json#/$defs/gate_decision"},
+        "feasibility_result": {"$ref": "common.schema.json#/$defs/feasibility_result"},
+        "proof_outcome": {"$ref": "common.schema.json#/$defs/proof_outcome"},
+        "skip_reason": {"enum": ["PROFILE_DISABLED", "CONDITION_NOT_MATCHED", "APPROVED_OPTIONAL_SKIP", "TERMINAL_BRANCH_NOT_SELECTED"]},
+        "error": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "common.schema.json#/$defs/structured_error"}
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": ["schema_version", "workflow_id", "workflow_version", "run_id", "state_version", "workflow_status", "readiness_status", "current_gate", "global_research_cycle", "profile_ref", "research_contract_ref", "nodes"],
+  "properties": {
+    "schema_version": {"$ref": "common.schema.json#/$defs/schema_version"},
+    "workflow_id": {"const": "product-discovery"},
+    "workflow_version": {"$ref": "common.schema.json#/$defs/schema_version"},
+    "run_id": {"$ref": "common.schema.json#/$defs/run_id"},
+    "state_version": {"type": "integer", "minimum": 0},
+    "workflow_status": {"$ref": "common.schema.json#/$defs/workflow_status"},
+    "readiness_status": {
+      "oneOf": [
+        {"$ref": "common.schema.json#/$defs/readiness_status"},
+        {"type": "null"}
+      ]
+    },
+    "current_gate": {
+      "oneOf": [
+        {"$ref": "common.schema.json#/$defs/machine_id"},
+        {"type": "null"}
+      ]
+    },
+    "global_research_cycle": {"type": "integer", "minimum": 0},
+    "profile_ref": {"type": "string", "pattern": "^(developer_tool|ai_agent_product|consumer_app|b2b_saas)@0\\.1\\.0$"},
+    "research_contract_ref": {"$ref": "common.schema.json#/$defs/artifact_ref"},
+    "nodes": {
+      "type": "object",
+      "propertyNames": {"$ref": "common.schema.json#/$defs/machine_id"},
+      "additionalProperties": {"$ref": "#/$defs/node_state"}
+    }
+  },
+  "additionalProperties": false
+}

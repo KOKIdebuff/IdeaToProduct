@@ -1,0 +1,16 @@
+decision:
+  id: DEC-001
+  date: "2026-08-08T04:10:00Z"
+  gate_id: gate_direction
+  question: Which product direction should be selected?
+  decision: APPROVE
+  rationale: [The selected direction has sufficient evidence.]
+  evidence_ids: [EV-001]
+  artifact_refs: [ART-DIRECTION-001@1]
+  alternatives: [Delay the direction decision.]
+  accepted_risks: []
+  structured_diff_ref: null
+  reversible: true
+  approved_by:
+    type: user
+    id: local_user

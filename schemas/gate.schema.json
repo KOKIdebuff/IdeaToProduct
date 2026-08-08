@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Human Gate Artifact Contract",
+  "type": "object",
+  "required": ["gate", "question", "options", "recommendation", "input_artifact_refs", "risks", "proposed_structured_diff_ref", "allowed_actions"],
+  "properties": {
+    "gate": {
+      "type": "object",
+      "required": ["id", "status", "gate_type"],
+      "properties": {
+        "id": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "status": {"const": "WAITING_FOR_USER"},
+        "gate_type": {"enum": ["research_scope", "product_direction", "mvp_scope", "evidence_waiver"]}
+      },
+      "additionalProperties": false
+    },
+    "question": {"type": "string", "minLength": 1},
+    "options": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {"$ref": "common.schema.json#/$defs/machine_id"},
+          "label": {"type": "string", "minLength": 1},
+          "description": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "recommendation": {
+      "type": "object",
+      "required": ["option"],
+      "properties": {"option": {"type": ["string", "null"]}},
+      "additionalProperties": false
+    },
+    "input_artifact_refs": {"$ref": "common.schema.json#/$defs/artifact_refs"},
+    "risks": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "proposed_structured_diff_ref": {
+      "anyOf": [
+        {"$ref": "common.schema.json#/$defs/artifact_ref"},
+        {"type": "null"}
+      ]
+    },
+    "allowed_actions": {"type": "array", "minItems": 1, "uniqueItems": true}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"gate": {"properties": {"gate_type": {"const": "evidence_waiver"}}}}},
+      "then": {"properties": {"allowed_actions": {"items": {"enum": ["PARTIAL_ACCEPTED", "REQUEST_MORE_RESEARCH", "CANCEL"]}}}}
+    },
+    {
+      "if": {"properties": {"gate": {"properties": {"gate_type": {"const": "product_direction"}}}}},
+      "then": {"properties": {"allowed_actions": {"items": {"enum": ["APPROVE", "MODIFY", "CANCEL", "SELECT_OTHER", "REQUEST_MORE_RESEARCH"]}}}}
+    },
+    {
+      "if": {"properties": {"gate": {"properties": {"gate_type": {"enum": ["research_scope", "mvp_scope"]}}}}},
+      "then": {"properties": {"allowed_actions": {"items": {"enum": ["APPROVE", "MODIFY", "CANCEL"]}}}}
+    }
+  ],
+  "additionalProperties": false
+}

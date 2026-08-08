@@ -1,0 +1,19 @@
+profile:
+  id: ai_agent_product
+  version: 0.1.0
+research_nodes:
+  competitor: {mode: required, priority: high}
+  users: {mode: required, priority: high}
+  market: {mode: required, priority: medium}
+  technology: {mode: required, priority: high}
+research_defaults:
+  competitor_count: 5
+  primary_sources: 8
+  user_evidence_items: 15
+  technology_items: 5
+competitor_visualizations:
+  required: [capability_matrix, positioning_map, cost_performance, ecosystem_momentum]
+extra_questions:
+  - Which model, API, paper, or framework changes the product boundary?
+  - Does a platform vendor already provide the native capability?
+extensions: []

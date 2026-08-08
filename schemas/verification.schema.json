@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Research Verification Contract",
+  "$defs": {
+    "verified_section": {
+      "type": "object",
+      "required": ["result", "issues"],
+      "properties": {
+        "result": {"$ref": "common.schema.json#/$defs/verification_result"},
+        "issues": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/issue"}}
+      },
+      "additionalProperties": false
+    },
+    "skipped_section": {
+      "type": "object",
+      "required": ["status", "skip_reason"],
+      "properties": {
+        "status": {"const": "SKIPPED"},
+        "skip_reason": {"const": "PROFILE_DISABLED"}
+      },
+      "additionalProperties": false
+    },
+    "section": {"oneOf": [{"$ref": "#/$defs/verified_section"}, {"$ref": "#/$defs/skipped_section"}]}
+  },
+  "type": "object",
+  "required": ["verification", "sections"],
+  "properties": {
+    "verification": {
+      "type": "object",
+      "required": ["overall", "critical_issues", "non_critical_issues"],
+      "properties": {
+        "overall": {"$ref": "common.schema.json#/$defs/verification_result"},
+        "critical_issues": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/issue"}},
+        "non_critical_issues": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/issue"}}
+      },
+      "additionalProperties": false
+    },
+    "sections": {
+      "type": "object",
+      "required": ["competitor", "users", "market", "technology"],
+      "properties": {
+        "competitor": {"$ref": "#/$defs/section"},
+        "users": {"$ref": "#/$defs/section"},
+        "market": {"$ref": "#/$defs/section"},
+        "technology": {"$ref": "#/$defs/section"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

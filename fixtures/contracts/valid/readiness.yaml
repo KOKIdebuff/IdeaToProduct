@@ -1,0 +1,6 @@
+readiness:
+  status: READY_FOR_BUILD
+  passed_checks: [research, feasibility, prd_consistency]
+  accepted_risk_decision_ids: []
+  blocking_issues: []
+  evaluated_at: "2026-08-08T05:20:00Z"

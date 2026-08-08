@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Product Discovery SkillGraph Common Definitions",
+  "$defs": {
+    "schema_version": {"const": "0.1.0"},
+    "machine_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$"
+    },
+    "non_empty_string": {"type": "string", "minLength": 1},
+    "timestamp": {
+      "anyOf": [
+        {"type": "string", "format": "date-time"},
+        {"type": "null"}
+      ]
+    },
+    "artifact_ref": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\s]+$"
+    },
+    "artifact_refs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/artifact_ref"},
+      "uniqueItems": true
+    },
+    "source_id": {"type": "string", "pattern": "^SRC-[A-Za-z0-9_-]+$"},
+    "evidence_id": {"type": "string", "pattern": "^EV-[A-Za-z0-9_-]+$"},
+    "claim_id": {"type": "string", "pattern": "^CL-[A-Za-z0-9_-]+$"},
+    "decision_id": {"type": "string", "pattern": "^DEC-[A-Za-z0-9_-]+$"},
+    "attempt_id": {"type": "string", "pattern": "^ATT-[A-Za-z0-9_-]+$"},
+    "run_id": {"type": "string", "pattern": "^run_[A-Za-z0-9_-]+$"},
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"
+    },
+    "node_status": {
+      "enum": ["PENDING", "READY", "RUNNING", "COMPLETED", "VERIFYING", "VERIFIED", "WAITING_FOR_USER", "WAITING_FOR_EXTERNAL", "APPROVED", "BLOCKED", "FAILED", "RETRY_READY", "SKIPPED", "INVALIDATED"]
+    },
+    "verification_result": {"enum": ["PASS", "PARTIAL", "FAIL"]},
+    "gate_decision": {
+      "enum": ["APPROVE", "MODIFY", "CANCEL", "SELECT_OTHER", "REQUEST_MORE_RESEARCH", "PARTIAL_ACCEPTED"]
+    },
+    "feasibility_result": {"enum": ["FEASIBLE", "CONDITIONALLY_FEASIBLE", "BLOCKED", "NOT_FEASIBLE"]},
+    "workflow_status": {"enum": ["CREATED", "RUNNING", "WAITING_FOR_USER", "WAITING_FOR_EXTERNAL", "PAUSED", "COMPLETED", "CANCELLED", "FAILED"]},
+    "readiness_status": {"enum": ["READY_FOR_BUILD", "READY_WITH_ACCEPTED_RISKS", "NOT_READY"]},
+    "proof_outcome": {"enum": ["PASS", "FAIL", "INCONCLUSIVE"]},
+    "adapter_type": {"enum": ["fixture", "manual", "host_agent"]},
+    "error_code": {
+      "enum": ["INPUT_INVALID", "ARTIFACT_MISSING", "SCHEMA_INVALID", "SOURCE_UNAVAILABLE", "INSUFFICIENT_EVIDENCE", "RESEARCH_LIMIT_REACHED", "DEPENDENCY_NOT_READY", "GATE_NOT_APPROVED", "VISUALIZATION_DATA_INSUFFICIENT", "EXECUTOR_FAILED", "PROOF_RESULT_INVALID", "PROOF_REQUIRED_FAILED", "BUDGET_EXCEEDED", "SECURITY_POLICY_VIOLATION", "STATE_VERSION_CONFLICT", "IDEMPOTENCY_CONFLICT", "PRD_INCONSISTENT_WITH_APPROVED_DISCOVERY"]
+    },
+    "structured_error": {
+      "type": "object",
+      "required": ["code", "recoverable", "details"],
+      "properties": {
+        "code": {"$ref": "#/$defs/error_code"},
+        "message": {"type": ["string", "null"]},
+        "recoverable": {"type": "boolean"},
+        "retry_target": {"type": ["string", "null"]},
+        "consumes_node_attempt": {"type": "boolean"},
+        "consumes_global_research_cycle": {"type": "boolean"},
+        "next_action": {"type": ["string", "null"]},
+        "details": {"type": "object", "additionalProperties": true}
+      },
+      "additionalProperties": false
+    },
+    "issue": {
+      "type": "object",
+      "required": ["code", "critical"],
+      "properties": {
+        "code": {"type": "string", "minLength": 1},
+        "message": {"type": ["string", "null"]},
+        "critical": {"type": "boolean"},
+        "evidence_ids": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/evidence_id"},
+          "uniqueItems": true
+        },
+        "details": {"type": "object", "additionalProperties": true}
+      },
+      "additionalProperties": false
+    }
+  }
+}

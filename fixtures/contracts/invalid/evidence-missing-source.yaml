@@ -1,0 +1,10 @@
+evidence:
+  id: EV-MISSING-SOURCE
+  claim_id: CL-001
+  source_id: SRC-NOT-INDEXED
+  evidence_type: qualitative
+  direction: supports
+  relevance: high
+  reliability: low
+  freshness: unknown
+  notes: This source reference must be rejected.

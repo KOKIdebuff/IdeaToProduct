@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Claim Contract",
+  "type": "object",
+  "required": ["claim"],
+  "properties": {
+    "claim": {
+      "type": "object",
+      "required": ["id", "statement", "category", "status", "confidence", "evidence_ids", "contradiction_ids"],
+      "properties": {
+        "id": {"$ref": "common.schema.json#/$defs/claim_id"},
+        "statement": {"type": "string", "minLength": 1},
+        "category": {"enum": ["user", "competitor", "market", "technology", "product"]},
+        "status": {"enum": ["VALIDATED", "PARTIALLY_VALIDATED", "INVALIDATED", "UNKNOWN"]},
+        "confidence": {"enum": ["HIGH", "MEDIUM", "LOW", "INSUFFICIENT"]},
+        "evidence_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/evidence_id"}},
+        "contradiction_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/evidence_id"}}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

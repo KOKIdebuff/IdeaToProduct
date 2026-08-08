@@ -1,0 +1,9 @@
+verification:
+  overall: PASS
+  critical_issues: []
+  non_critical_issues: []
+sections:
+  competitor: {result: PASS, issues: []}
+  users: {result: PASS, issues: []}
+  market: {result: PASS, issues: []}
+  technology: {result: PASS, issues: []}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Build Readiness Result Contract",
+  "type": "object",
+  "required": ["readiness"],
+  "properties": {
+    "readiness": {
+      "type": "object",
+      "required": ["status", "passed_checks", "accepted_risk_decision_ids", "blocking_issues", "evaluated_at"],
+      "properties": {
+        "status": {"$ref": "common.schema.json#/$defs/readiness_status"},
+        "passed_checks": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "accepted_risk_decision_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/decision_id"}},
+        "blocking_issues": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/issue"}},
+        "evaluated_at": {"type": "string", "format": "date-time"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

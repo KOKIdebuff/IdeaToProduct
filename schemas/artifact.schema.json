@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Base Artifact Contract",
+  "type": "object",
+  "required": ["artifact"],
+  "properties": {
+    "artifact": {
+      "type": "object",
+      "required": ["id", "type", "schema_version", "produced_by", "created_at", "supersedes", "status"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^ART-[A-Za-z0-9_-]+$"},
+        "type": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "schema_version": {"$ref": "common.schema.json#/$defs/schema_version"},
+        "version": {"type": "integer", "minimum": 1},
+        "produced_by": {
+          "type": "object",
+          "required": ["skill", "attempt"],
+          "properties": {
+            "skill": {"$ref": "common.schema.json#/$defs/machine_id"},
+            "attempt": {"$ref": "common.schema.json#/$defs/attempt_id"}
+          },
+          "additionalProperties": false
+        },
+        "created_at": {"type": "string", "format": "date-time"},
+        "supersedes": {
+          "anyOf": [
+            {"$ref": "common.schema.json#/$defs/artifact_ref"},
+            {"type": "null"}
+          ]
+        },
+        "status": {"enum": ["active", "superseded", "invalidated"]},
+        "content_hash": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true
+}
