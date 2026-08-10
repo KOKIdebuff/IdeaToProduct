@@ -1,0 +1,23 @@
+artifact:
+  id: ART-IDEA-003
+  type: idea_definition
+  schema_version: 0.2.0
+  version: 1
+  produced_by:
+    skill: idea-intake
+    attempt: ATT-00003
+  created_at: "2026-08-08T04:00:00Z"
+  supersedes: null
+  status: active
+idea:
+  original: Build an evidence-grounded product discovery workflow.
+problem: {}
+target_users:
+  primary: [product builders]
+  secondary: []
+proposed_solution: []
+assumptions: []
+unknowns: []
+non_goals: []
+confidence:
+  overall: low

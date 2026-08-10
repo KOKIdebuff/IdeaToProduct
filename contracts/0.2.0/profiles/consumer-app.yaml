@@ -1,0 +1,22 @@
+profile:
+  id: consumer_app
+  version: 0.2.0
+research_nodes:
+  competitor: {mode: required, priority: high}
+  users: {mode: required, priority: high}
+  market: {mode: required, priority: medium}
+  technology: {mode: optional, priority: low}
+research_defaults:
+  competitor_count: 5
+  primary_sources: 8
+  user_evidence_items: 15
+  technology_items: 5
+competitor_visualizations:
+  required: [feature_ux_matrix, positioning_map]
+  choose_one:
+    options: [pricing_comparison, sentiment_distribution]
+    selected_by: research_contract
+extra_questions:
+  - Which switching or retention signals are visible in user reviews?
+  - Which UX pattern is the main adoption barrier?
+extensions: []

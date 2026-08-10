@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IdeaToProduct Contract Version Registry",
+  "type": "object",
+  "required": ["registry"],
+  "properties": {
+    "registry": {
+      "type": "object",
+      "required": [
+        "default_new_run_version",
+        "path_resolution",
+        "versions",
+        "compatibility_matrix",
+        "integrity"
+      ],
+      "properties": {
+        "default_new_run_version": {"const": "0.2.0"},
+        "path_resolution": {"const": "repository_root_relative"},
+        "versions": {
+          "type": "object",
+          "required": ["0.1.0", "0.2.0"],
+          "properties": {
+            "0.1.0": {
+              "$ref": "#/$defs/version_entry",
+              "properties": {
+                "status": {"const": "immutable_baseline"},
+                "bundle_root": {"const": "."},
+                "new_runs_allowed": {"const": false},
+                "resume_allowed": {"const": false},
+                "audit_allowed": {"const": true}
+              }
+            },
+            "0.2.0": {
+              "$ref": "#/$defs/version_entry",
+              "properties": {
+                "status": {"const": "current"},
+                "bundle_root": {"const": "contracts/0.2.0"},
+                "new_runs_allowed": {"const": true},
+                "resume_allowed": {"const": true},
+                "audit_allowed": {"const": true}
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "compatibility_matrix": {
+          "type": "object",
+          "required": ["default_policy", "rules"],
+          "properties": {
+            "default_policy": {"const": "deny"},
+            "rules": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"$ref": "#/$defs/compatibility_rule"}
+            }
+          },
+          "additionalProperties": false
+        },
+        "integrity": {
+          "type": "object",
+          "required": ["baseline_manifest", "frozen_documents_sha256"],
+          "properties": {
+            "baseline_manifest": {"const": "contracts/0.1.0-baseline.sha256.json"},
+            "frozen_documents_sha256": {
+              "type": "object",
+              "required": ["PRD_v0.1.md", "PRD_v0.2.md", "SPEC_v0.1.md", "SPEC_v0.2.md"],
+              "properties": {
+                "PRD_v0.1.md": {"const": "4f30af7ad396f618bd3a06f82194cd8bb9a2d1fc378c04d3cd7986ee843cbf94"},
+                "PRD_v0.2.md": {"const": "159f8e7298fa118225d686cd1d4cf0d044fd11a879cebb73d82186ecd5fe9797"},
+                "SPEC_v0.1.md": {"const": "3ff75e1c02d6d4088d45c210349f5ec4ae5620d453a63d82bc34a2219e1079ee"},
+                "SPEC_v0.2.md": {"const": "9cd4a7cbf284499752974213ff2ac8eb48a5ecb15951e92e1a89cf1b98f4b4e4"}
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "version_entry": {
+      "type": "object",
+      "required": ["status", "bundle_root", "new_runs_allowed", "resume_allowed", "audit_allowed"],
+      "properties": {
+        "status": {"enum": ["immutable_baseline", "current"]},
+        "bundle_root": {"type": "string", "minLength": 1},
+        "new_runs_allowed": {"type": "boolean"},
+        "resume_allowed": {"type": "boolean"},
+        "audit_allowed": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "compatibility_rule": {
+      "type": "object",
+      "required": [
+        "id",
+        "source_contract_version",
+        "target_contract_version",
+        "ref_type",
+        "purpose",
+        "access",
+        "current_manifest_allowed",
+        "state_driving_allowed",
+        "required_revalidation"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "source_contract_version": {"const": "0.1.0"},
+        "target_contract_version": {"const": "0.2.0"},
+        "ref_type": {"enum": ["source", "evidence", "claim"]},
+        "purpose": {"const": "seed_current_research"},
+        "access": {"const": "read_only"},
+        "current_manifest_allowed": {"const": false},
+        "state_driving_allowed": {"const": false},
+        "required_revalidation": {
+          "type": "array",
+          "minItems": 5,
+          "uniqueItems": true,
+          "items": {"enum": ["source_schema", "content_hash", "freshness", "provenance", "security", "verification"]},
+          "allOf": [
+            {"contains": {"const": "source_schema"}},
+            {"contains": {"const": "content_hash"}},
+            {"contains": {"const": "freshness"}},
+            {"contains": {"const": "provenance"}},
+            {"contains": {"const": "security"}},
+            {"contains": {"const": "verification"}}
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

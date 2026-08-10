@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Run Policy Contract",
+  "$defs": {
+    "policy": {
+      "type": "object",
+      "required": ["max_parallel", "automated_attempt_timeout_minutes", "max_sources_per_research_node", "max_retries_per_node", "max_global_research_cycles", "automated_run_timeout_minutes", "host_token_limit", "host_cost_limit"],
+      "properties": {
+        "max_parallel": {"type": "integer", "minimum": 1},
+        "automated_attempt_timeout_minutes": {"type": "integer", "minimum": 1},
+        "max_sources_per_research_node": {"type": "integer", "minimum": 1},
+        "max_retries_per_node": {"type": "integer", "minimum": 0},
+        "max_global_research_cycles": {"type": "integer", "minimum": 0},
+        "automated_run_timeout_minutes": {"type": "integer", "minimum": 1},
+        "host_token_limit": {"type": ["integer", "null"], "minimum": 1},
+        "host_cost_limit": {"type": ["number", "null"], "minimum": 0}
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": ["run_policy"],
+  "properties": {"run_policy": {"$ref": "#/$defs/policy"}},
+  "additionalProperties": false
+}

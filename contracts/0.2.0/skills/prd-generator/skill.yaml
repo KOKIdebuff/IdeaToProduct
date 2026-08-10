@@ -1,0 +1,38 @@
+skill:
+  id: prd-generator
+  version: 0.2.0
+  type: generator
+inputs:
+  required: [research_synthesis, product_definition, feasibility_review, mvp_scope, mvp_scope_decision]
+  optional: [proof_result, accepted_risk_decisions]
+reads:
+  - artifacts/03-analysis/research-synthesis.md
+  - artifacts/05-product/product-definition.md
+  - artifacts/05-product/mvp-scope.yaml
+  - artifacts/06-feasibility/feasibility.md
+  - artifacts/06-feasibility/proof-result.yaml
+  - templates/prd.md
+writes:
+  - artifacts/07-prd/prd.md
+output_contracts:
+  - artifact_type: prd
+    write: artifacts/07-prd/prd.md
+    schema_ref: schemas/artifact.schema.json
+    template_ref: templates/prd.md
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/07-prd/prd.md
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 0
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [prd]
+  approved_inputs_only: true
+on_failure: []

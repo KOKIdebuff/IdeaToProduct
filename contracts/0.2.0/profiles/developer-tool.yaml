@@ -1,0 +1,19 @@
+profile:
+  id: developer_tool
+  version: 0.2.0
+research_nodes:
+  competitor: {mode: required, priority: high}
+  users: {mode: required, priority: high}
+  market: {mode: required, priority: medium}
+  technology: {mode: required, priority: high}
+research_defaults:
+  competitor_count: 5
+  primary_sources: 8
+  user_evidence_items: 15
+  technology_items: 5
+competitor_visualizations:
+  required: [feature_matrix, positioning_map, momentum_comparison, oss_activity]
+extra_questions:
+  - Does platform vendor offer native equivalent capability?
+  - Can OSS components reduce implementation scope?
+extensions: []

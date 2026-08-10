@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Product Discovery Workflow Contract",
+  "$defs": {
+    "scalar_or_array_node_status": {
+      "oneOf": [
+        {"$ref": "common.schema.json#/$defs/node_status"},
+        {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/node_status"}}
+      ]
+    },
+    "scalar_or_array_verification_result": {
+      "oneOf": [
+        {"$ref": "common.schema.json#/$defs/verification_result"},
+        {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/verification_result"}}
+      ]
+    },
+    "scalar_or_array_gate_decision": {
+      "oneOf": [
+        {"$ref": "common.schema.json#/$defs/gate_decision"},
+        {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/gate_decision"}}
+      ]
+    },
+    "scalar_or_array_feasibility_result": {
+      "oneOf": [
+        {"$ref": "common.schema.json#/$defs/feasibility_result"},
+        {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/feasibility_result"}}
+      ]
+    },
+    "scalar_or_array_proof_outcome": {
+      "oneOf": [
+        {"$ref": "common.schema.json#/$defs/proof_outcome"},
+        {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/proof_outcome"}}
+      ]
+    },
+    "predicate": {
+      "type": "object",
+      "required": ["node"],
+      "properties": {
+        "node": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "node_status": {"$ref": "#/$defs/scalar_or_array_node_status"},
+        "verification_result": {"$ref": "#/$defs/scalar_or_array_verification_result"},
+        "gate_decision": {"$ref": "#/$defs/scalar_or_array_gate_decision"},
+        "feasibility_result": {"$ref": "#/$defs/scalar_or_array_feasibility_result"},
+        "proof_outcome": {"$ref": "#/$defs/scalar_or_array_proof_outcome"}
+      },
+      "oneOf": [
+        {"required": ["node_status"]},
+        {"required": ["verification_result"]},
+        {"required": ["gate_decision"]},
+        {"required": ["feasibility_result"]},
+        {"required": ["proof_outcome"]}
+      ],
+      "additionalProperties": false
+    },
+    "when": {
+      "oneOf": [
+        {"$ref": "#/$defs/predicate"},
+        {
+          "type": "object",
+          "required": ["any_of"],
+          "properties": {
+            "any_of": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/predicate"}}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "loop": {
+      "type": "object",
+      "required": ["retry_targets_from", "invalidate_from_gap", "always_invalidate", "return_to"],
+      "properties": {
+        "retry_targets_from": {"$ref": "common.schema.json#/$defs/relative_path"},
+        "invalidate_from_gap": {"type": "boolean"},
+        "always_invalidate": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/machine_id"}},
+        "return_to": {"$ref": "common.schema.json#/$defs/machine_id"}
+      },
+      "additionalProperties": false
+    },
+    "on_submit": {
+      "type": "object",
+      "required": ["validate", "invalidate", "return_to"],
+      "properties": {
+        "validate": {"type": "string", "pattern": "^[a-z0-9-]+\\.schema\\.json$"},
+        "invalidate": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/machine_id"}},
+        "return_to": {"$ref": "common.schema.json#/$defs/machine_id"}
+      },
+      "additionalProperties": false
+    },
+    "node": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["skill", "subgraph", "human_gate", "verifier", "router", "external_input"]},
+        "skill": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "subgraph": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "gate": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "router": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "contract": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "depends_on": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/machine_id"}},
+        "required": {"type": "boolean"},
+        "configurable_by_profile": {"type": "boolean"},
+        "when": {"$ref": "#/$defs/when"},
+        "loop": {"$ref": "#/$defs/loop"},
+        "wait_status": {"const": "WAITING_FOR_EXTERNAL"},
+        "on_submit": {"$ref": "#/$defs/on_submit"},
+        "trigger_on_terminal_events": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["CRITICAL_RESEARCH_BLOCKER", "FEASIBILITY_NOT_FEASIBLE", "REQUIRED_PROOF_FAILED", "PRD_CONSISTENCY_FAILED"]}
+        }
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"enum": ["skill", "verifier"]}}}, "then": {"required": ["skill"]}},
+        {"if": {"properties": {"kind": {"const": "subgraph"}}}, "then": {"required": ["subgraph"]}},
+        {"if": {"properties": {"kind": {"const": "human_gate"}}}, "then": {"required": ["gate"]}},
+        {"if": {"properties": {"kind": {"const": "router"}}}, "then": {"required": ["router"]}},
+        {"if": {"properties": {"kind": {"const": "external_input"}}}, "then": {"required": ["contract", "wait_status", "on_submit"]}}
+      ],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": ["workflow", "policies", "nodes"],
+  "properties": {
+    "workflow": {
+      "type": "object",
+      "required": ["id", "version", "schema_version"],
+      "properties": {
+        "id": {"const": "product-discovery"},
+        "version": {"$ref": "common.schema.json#/$defs/schema_version"},
+        "schema_version": {"$ref": "common.schema.json#/$defs/schema_version"}
+      },
+      "additionalProperties": false
+    },
+    "policies": {"$ref": "run-policy.schema.json#/$defs/policy"},
+    "nodes": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "common.schema.json#/$defs/machine_id"},
+      "additionalProperties": {"$ref": "#/$defs/node"}
+    }
+  },
+  "additionalProperties": false
+}

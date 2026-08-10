@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Build Readiness Result Contract",
+  "$defs": {
+    "readiness_payload": {
+      "type": "object",
+      "required": ["status", "passed_checks", "accepted_risk_decision_ids", "blocking_issues", "evaluated_at"],
+      "properties": {
+        "status": {"$ref": "common.schema.json#/$defs/readiness_status"},
+        "passed_checks": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "accepted_risk_decision_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/decision_id"}},
+        "blocking_issues": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/issue"}},
+        "evaluated_at": {"type": "string", "format": "date-time"}
+      },
+      "additionalProperties": false
+    },
+    "legacy_readiness_result": {
+      "type": "object",
+      "required": ["readiness"],
+      "properties": {"readiness": {"$ref": "#/$defs/readiness_payload"}},
+      "additionalProperties": false
+    },
+    "readiness_result": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "readiness"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "readiness_result"}}},
+            "readiness": {"$ref": "#/$defs/readiness_payload"}
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "$ref": "#/$defs/readiness_result"
+}

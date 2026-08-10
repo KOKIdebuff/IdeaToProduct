@@ -1,0 +1,5 @@
+source_contract_version: 0.1.0
+ref_type: evidence
+ref: fixtures/contracts/valid/evidence.yaml
+content_hash: sha256:2751c496715f52d015b3c667bbe3540f95d3ad8c40816ff6321134c127859a34
+purpose: seed_current_research

@@ -1,0 +1,33 @@
+skill:
+  id: competitor-discovery
+  version: 0.2.0
+  type: research
+inputs:
+  required: [idea_definition, research_contract]
+  optional: []
+reads:
+  - artifacts/00-intake/idea-definition.yaml
+  - artifacts/01-contract/research-contract.yaml
+writes:
+  - artifacts/02-research/competitors/candidates.json
+output_contracts:
+  - artifact_type: competitor_candidates
+    write: artifacts/02-research/competitors/candidates.json
+    schema_ref: schemas/competitor.schema.json#/$defs/competitor_candidates
+    template_ref: null
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: read_only
+  workspace_write: [artifacts/02-research/competitors/]
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 50
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  direct_competitors:
+    min_if_available: 3
+on_failure: [emit_research_gap]

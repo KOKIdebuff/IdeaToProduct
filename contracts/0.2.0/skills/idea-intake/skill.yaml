@@ -1,0 +1,46 @@
+skill:
+  id: idea-intake
+  version: 0.2.0
+  type: transform
+inputs:
+  required: []
+  optional: []
+reads: []
+writes:
+  - artifacts/00-intake/idea-definition.yaml
+output_contracts:
+  - artifact_type: idea_definition
+    write: artifacts/00-intake/idea-definition.yaml
+    schema_ref: schemas/idea.schema.json#/$defs/idea_definition
+    template_ref: null
+interaction:
+  mode: adaptive
+  supported_methods:
+    - clarification
+    - controlled_brainstorming
+    - adaptive_product_discovery_interview
+    - assumption_challenge
+  selection_policy: highest_value_gap
+  user_input_allowed: true
+  one_question_at_a_time: true
+  recommendation_enabled: true
+  choice_generation_enabled: true
+  allow_freeform_answer: true
+  max_rounds: 8
+  early_exit_when_sufficient: true
+evidence:
+  required: false
+  provenance_required: false
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/00-intake/idea-definition.yaml
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 0
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [idea_definition]
+on_failure: []

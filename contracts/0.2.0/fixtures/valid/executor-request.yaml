@@ -1,0 +1,19 @@
+executor_request:
+  schema_version: 0.2.0
+  run_id: run_20260808_001
+  node_id: competitor
+  attempt_id: ATT-00017
+  adapter_type: host_agent
+  skill_ref: competitor-discovery@0.2.0
+  input_artifact_refs: [ART-IDEA-001@1, ART-CONTRACT-001@1]
+  profile_ref: developer_tool@0.2.0
+  research_contract_ref: ART-CONTRACT-001@1
+  permissions:
+    external_access: read_only
+    workspace_write_paths: [artifacts/02-research/competitors/]
+    secrets: forbidden
+  budget:
+    timeout_minutes: 20
+    max_sources: 50
+    token_limit: null
+    cost_limit: null

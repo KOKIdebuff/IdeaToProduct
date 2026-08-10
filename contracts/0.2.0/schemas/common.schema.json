@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Product Discovery SkillGraph Common Definitions",
+  "$defs": {
+    "schema_version": {"const": "0.2.0"},
+    "machine_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$"
+    },
+    "non_empty_string": {"type": "string", "minLength": 1},
+    "timestamp": {
+      "anyOf": [
+        {"type": "string", "format": "date-time"},
+        {"type": "null"}
+      ]
+    },
+    "artifact_ref": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\s]+$"
+    },
+    "artifact_refs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/artifact_ref"},
+      "uniqueItems": true
+    },
+    "source_id": {"type": "string", "pattern": "^SRC-[A-Za-z0-9_-]+$"},
+    "evidence_id": {"type": "string", "pattern": "^EV-[A-Za-z0-9_-]+$"},
+    "claim_id": {"type": "string", "pattern": "^CL-[A-Za-z0-9_-]+$"},
+    "decision_id": {"type": "string", "pattern": "^DEC-[A-Za-z0-9_-]+$"},
+    "attempt_id": {"type": "string", "pattern": "^ATT-[A-Za-z0-9_-]+$"},
+    "checkpoint_id": {"type": "string", "pattern": "^CP-[A-Za-z0-9_-]+$"},
+    "question_id": {"type": "string", "pattern": "^IQ-[A-Za-z0-9_-]+$"},
+    "assumption_id": {"type": "string", "pattern": "^ASM-[A-Za-z0-9_-]+$"},
+    "unknown_id": {"type": "string", "pattern": "^UNK-[A-Za-z0-9_-]+$"},
+    "run_id": {"type": "string", "pattern": "^run_[A-Za-z0-9_-]+$"},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-fA-F]{64}$"},
+    "interaction_method": {
+      "enum": ["clarification", "controlled_brainstorming", "adaptive_product_discovery_interview", "assumption_challenge"]
+    },
+    "clarity_level": {"enum": ["UNKNOWN", "LOW", "MEDIUM", "HIGH"]},
+    "idea_clarity": {"enum": ["CLEAR", "PARTIAL", "VAGUE"]},
+    "idea_completion_outcome": {"enum": ["SUFFICIENT", "PARTIAL_RESEARCHABLE", "INSUFFICIENT_PRODUCT_CONTEXT"]},
+    "interaction_option": {
+      "type": "object",
+      "required": ["id", "label", "description"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "label": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "interaction_recommendation": {
+      "type": "object",
+      "required": ["option_id", "rationale"],
+      "properties": {
+        "option_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "rationale": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "interaction_request": {
+      "type": "object",
+      "required": ["method", "question_id", "round", "dimension", "prompt", "options", "recommendation", "allow_freeform_answer"],
+      "properties": {
+        "method": {"$ref": "#/$defs/interaction_method"},
+        "question_id": {"$ref": "#/$defs/question_id"},
+        "round": {"type": "integer", "minimum": 1, "maximum": 8},
+        "dimension": {"enum": ["problem", "user", "scenario", "value", "mechanism"]},
+        "prompt": {"type": "string", "minLength": 1},
+        "options": {
+          "type": "array",
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/interaction_option"},
+          "oneOf": [{"maxItems": 0}, {"minItems": 2}]
+        },
+        "recommendation": {
+          "oneOf": [
+            {"$ref": "#/$defs/interaction_recommendation"},
+            {"type": "null"}
+          ]
+        },
+        "allow_freeform_answer": {"const": true}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"options": {"minItems": 2}}},
+          "then": {"properties": {"recommendation": {"$ref": "#/$defs/interaction_recommendation"}}}
+        },
+        {
+          "if": {"properties": {"options": {"maxItems": 0}}},
+          "then": {"properties": {"recommendation": {"type": "null"}}}
+        }
+      ],
+      "additionalProperties": false
+    },
+    "interaction_checkpoint": {
+      "type": "object",
+      "required": ["checkpoint_id", "checkpoint_version", "round", "current_method", "target_unknown_id", "selection_rationale", "completion_status"],
+      "properties": {
+        "checkpoint_id": {"$ref": "#/$defs/checkpoint_id"},
+        "checkpoint_version": {"type": "integer", "minimum": 1},
+        "round": {"type": "integer", "minimum": 0, "maximum": 8},
+        "current_method": {"$ref": "#/$defs/interaction_method"},
+        "target_unknown_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/unknown_id"},
+            {"type": "null"}
+          ]
+        },
+        "target_dimension": {"enum": ["problem", "user", "scenario", "value", "mechanism"]},
+        "selection_rationale": {"type": "string", "minLength": 1},
+        "completion_status": {"enum": ["IN_PROGRESS", "SUFFICIENT", "PARTIAL_RESEARCHABLE", "INSUFFICIENT_PRODUCT_CONTEXT"]}
+      },
+      "additionalProperties": false
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"
+    },
+    "node_status": {
+      "enum": ["PENDING", "READY", "RUNNING", "COMPLETED", "VERIFYING", "VERIFIED", "WAITING_FOR_USER", "WAITING_FOR_EXTERNAL", "APPROVED", "BLOCKED", "FAILED", "RETRY_READY", "SKIPPED", "INVALIDATED"]
+    },
+    "verification_result": {"enum": ["PASS", "PARTIAL", "FAIL"]},
+    "gate_decision": {
+      "enum": ["APPROVE", "MODIFY", "CANCEL", "SELECT_OTHER", "REQUEST_MORE_RESEARCH", "PARTIAL_ACCEPTED"]
+    },
+    "feasibility_result": {"enum": ["FEASIBLE", "CONDITIONALLY_FEASIBLE", "BLOCKED", "NOT_FEASIBLE"]},
+    "workflow_status": {"enum": ["CREATED", "RUNNING", "WAITING_FOR_USER", "WAITING_FOR_EXTERNAL", "PAUSED", "COMPLETED", "CANCELLED", "FAILED"]},
+    "readiness_status": {"enum": ["READY_FOR_BUILD", "READY_WITH_ACCEPTED_RISKS", "NOT_READY"]},
+    "proof_outcome": {"enum": ["PASS", "FAIL", "INCONCLUSIVE"]},
+    "adapter_type": {"enum": ["fixture", "manual", "host_agent"]},
+    "error_code": {
+      "enum": ["INPUT_INVALID", "ARTIFACT_MISSING", "SCHEMA_INVALID", "SOURCE_UNAVAILABLE", "INSUFFICIENT_EVIDENCE", "RESEARCH_LIMIT_REACHED", "DEPENDENCY_NOT_READY", "GATE_NOT_APPROVED", "VISUALIZATION_DATA_INSUFFICIENT", "EXECUTOR_FAILED", "PROOF_RESULT_INVALID", "PROOF_REQUIRED_FAILED", "BUDGET_EXCEEDED", "SECURITY_POLICY_VIOLATION", "STATE_VERSION_CONFLICT", "IDEMPOTENCY_CONFLICT", "PRD_INCONSISTENT_WITH_APPROVED_DISCOVERY", "INSUFFICIENT_PRODUCT_CONTEXT", "SCHEMA_VERSION_UNSUPPORTED"]
+    },
+    "structured_error": {
+      "type": "object",
+      "required": ["code", "recoverable", "details"],
+      "properties": {
+        "code": {"$ref": "#/$defs/error_code"},
+        "message": {"type": ["string", "null"]},
+        "recoverable": {"type": "boolean"},
+        "retry_target": {"type": ["string", "null"]},
+        "consumes_node_attempt": {"type": "boolean"},
+        "consumes_global_research_cycle": {"type": "boolean"},
+        "next_action": {"type": ["string", "null"]},
+        "details": {"type": "object", "additionalProperties": true}
+      },
+      "additionalProperties": false
+    },
+    "issue": {
+      "type": "object",
+      "required": ["code", "critical"],
+      "properties": {
+        "code": {"type": "string", "minLength": 1},
+        "message": {"type": ["string", "null"]},
+        "critical": {"type": "boolean"},
+        "evidence_ids": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/evidence_id"},
+          "uniqueItems": true
+        },
+        "details": {"type": "object", "additionalProperties": true}
+      },
+      "additionalProperties": false
+    }
+  }
+}

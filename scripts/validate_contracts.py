@@ -19,6 +19,29 @@ from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import SchemaError
 from referencing import Registry, Resource
 
+try:
+    from scripts.contract_bundles import (
+        BundleContext,
+        ContractResolutionError,
+        VersionRegistry,
+        evaluate_legacy_input_ref,
+        load_bundle_context,
+        load_version_registry,
+        resolve_contract_bundle,
+        verify_integrity,
+    )
+except ModuleNotFoundError:  # direct ``python scripts/validate_contracts.py`` execution
+    from contract_bundles import (  # type: ignore[no-redef]
+        BundleContext,
+        ContractResolutionError,
+        VersionRegistry,
+        evaluate_legacy_input_ref,
+        load_bundle_context,
+        load_version_registry,
+        resolve_contract_bundle,
+        verify_integrity,
+    )
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_DIR = ROOT / "schemas"
@@ -1541,77 +1564,204 @@ def fixture_diagnostics(
     return diagnostics, len(loaded_cases)
 
 
-def validate_repository() -> tuple[list[Diagnostic], int]:
-    """Validate the complete immutable root v0.1 Contract Bundle."""
-    catalog = build_repository_catalog(ROOT)
-    schemas, registry = load_schemas()
-    diagnostics = repository_inventory_diagnostics(catalog)
+def registry_contract_diagnostics() -> tuple[list[Diagnostic], int]:
+    """Validate the Registry's own Schema and instance before resolving Bundles."""
+    schema_path = ROOT / "contracts" / "registry.schema.json"
+    registry_path = ROOT / "contracts" / "registry.yaml"
+    schema = load_document(schema_path)
+    document = load_document(registry_path)
+    diagnostics: list[Diagnostic] = []
+    checked = 2
+    if not isinstance(schema, dict):
+        diagnostics.append(Diagnostic(_display_path(schema_path), "$", "contract_type", "Registry Schema must be an object"))
+        return diagnostics, checked
+    try:
+        Draft202012Validator.check_schema(schema)
+    except SchemaError as exc:
+        diagnostics.append(Diagnostic(_display_path(schema_path), _json_path(exc.path), "meta_schema", exc.message))
+        return diagnostics, checked
+    if not isinstance(document, dict):
+        diagnostics.append(Diagnostic(_display_path(registry_path), "$", "contract_type", "Version Registry must be an object"))
+        return diagnostics, checked
+    validator = Draft202012Validator(schema, format_checker=FormatChecker())
+    for error in sorted(validator.iter_errors(document), key=lambda item: (_json_path(item.absolute_path), item.validator or "", item.message)):
+        diagnostics.append(Diagnostic(_display_path(registry_path), _json_path(error.absolute_path), error.validator or "schema", error.message))
+    return diagnostics, checked
+
+
+def legacy_fixture_diagnostics(
+    context: BundleContext,
+    version_registry: VersionRegistry,
+) -> tuple[list[Diagnostic], int]:
+    """Evaluate explicit Legacy input references without materializing current artifacts."""
+    manifest = load_document(context.fixture_manifest_path)
+    if not isinstance(manifest, dict):
+        return [Diagnostic(_display_path(context.fixture_manifest_path), "$", "fixture_manifest", "Fixture Manifest must be an object")], 0
+    cases = manifest.get("legacy_cases", [])
+    if not isinstance(cases, list):
+        return [Diagnostic(_display_path(context.fixture_manifest_path), "$.legacy_cases", "fixture_manifest", "legacy_cases must be an array")], 0
+    diagnostics: list[Diagnostic] = []
+    checked = 0
+    for index, spec in enumerate(cases):
+        if not isinstance(spec, dict) or not isinstance(spec.get("path"), str):
+            diagnostics.append(Diagnostic(_display_path(context.fixture_manifest_path), f"$.legacy_cases[{index}]", "fixture_manifest", "Legacy Fixture case must declare a string path"))
+            continue
+        source = spec["path"]
+        try:
+            path = resolve_repo_path(
+                source,
+                root=context.bundle.root,
+                allowed_root="fixtures",
+                must_exist=True,
+                reject_symlinks=True,
+            )
+            reference = load_document(path)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+            diagnostics.append(Diagnostic(source, "$", "legacy_fixture_load", str(exc)))
+            continue
+        checked += 1
+        if not isinstance(reference, dict):
+            diagnostics.append(Diagnostic(source, "$", "legacy_fixture_shape", "Legacy input reference must be an object"))
+            continue
+        decision = evaluate_legacy_input_ref(
+            reference,
+            spec.get("target_contract_version"),
+            repository_root=ROOT,
+            registry=version_registry,
+        )
+        expected_accepted = spec.get("expected_accepted")
+        expected_reason = spec.get("expected_reason")
+        expected_rule = spec.get("expected_rule")
+        if decision.accepted is not expected_accepted:
+            diagnostics.append(Diagnostic(source, "$", "unexpected_legacy_decision", f"Expected accepted={expected_accepted}; got {decision.accepted}"))
+        if decision.reason != expected_reason:
+            diagnostics.append(Diagnostic(source, "$", "unexpected_legacy_reason", f"Expected reason {expected_reason}; got {decision.reason}"))
+        if decision.rule_id != expected_rule:
+            diagnostics.append(Diagnostic(source, "$", "unexpected_legacy_rule", f"Expected rule {expected_rule}; got {decision.rule_id}"))
+    return diagnostics, checked
+
+
+def _scope_bundle_diagnostics(diagnostics: Iterable[Diagnostic], context: BundleContext) -> list[Diagnostic]:
+    try:
+        prefix = context.bundle.root.resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        prefix = context.bundle.root.resolve().as_posix()
+    if prefix in {"", "."}:
+        return list(diagnostics)
+    scoped: list[Diagnostic] = []
+    for diagnostic in diagnostics:
+        source = diagnostic.source
+        if source != prefix and not source.startswith(prefix + "/"):
+            source = f"{prefix}/{source}"
+        scoped.append(Diagnostic(source, diagnostic.path, diagnostic.rule, diagnostic.message))
+    return scoped
+
+
+def validate_bundle(
+    context: BundleContext,
+    *,
+    version_registry: VersionRegistry | None = None,
+) -> tuple[list[Diagnostic], int]:
+    """Validate one selected Contract Bundle without consulting another Bundle tree."""
+    contract_version = context.bundle.contract_version
+    catalog = build_repository_catalog(context.bundle.root)
+    schemas, schema_registry = load_schemas(context.schema_dir)
+    diagnostics = repository_inventory_diagnostics(catalog, contract_version=contract_version)
     diagnostics.extend(schema_diagnostics(schemas))
     checked = len(schemas)
 
     skill_errors, skill_count, _, skill_output_types = skill_repository_diagnostics(
         catalog,
         schemas,
-        registry,
+        schema_registry,
+        contract_version=contract_version,
     )
     diagnostics.extend(skill_errors)
     checked += skill_count
 
-    template_errors, template_count = template_repository_diagnostics(catalog)
+    template_errors, template_count = template_repository_diagnostics(catalog, contract_version=contract_version)
     diagnostics.extend(template_errors)
     checked += template_count
 
     subgraph_errors, subgraph_count = subgraph_repository_diagnostics(
         catalog,
         schemas,
-        registry,
+        schema_registry,
         skill_output_types,
+        contract_version=contract_version,
     )
     diagnostics.extend(subgraph_errors)
     checked += subgraph_count
 
-    workflow_path = ROOT / "workflow.yaml"
-    workflow = load_document(workflow_path)
-    workflow_source = _display_path(workflow_path)
-    workflow_errors = validate_instance(
-        workflow,
-        "workflow.schema.json",
-        workflow_source,
-        schemas,
-        registry,
-    )
+    workflow = load_document(context.workflow_path)
+    workflow_source = context.workflow_path.relative_to(context.bundle.root).as_posix()
+    workflow_errors = validate_instance(workflow, "workflow.schema.json", workflow_source, schemas, schema_registry)
     diagnostics.extend(workflow_errors)
     if not workflow_errors:
-        diagnostics.extend(workflow_semantics(workflow, workflow_source, catalog))
+        diagnostics.extend(workflow_semantics(workflow, workflow_source, catalog, contract_version=contract_version))
     checked += 1
 
-    for profile_path in sorted(PROFILE_DIR.glob("*.yaml")):
+    for profile_path in sorted(context.profile_dir.glob("*.yaml")):
         profile = load_document(profile_path)
-        source = _display_path(profile_path)
-        profile_errors = validate_instance(
-            profile,
-            "profile.schema.json",
-            source,
-            schemas,
-            registry,
-        )
+        source = profile_path.relative_to(context.bundle.root).as_posix()
+        profile_errors = validate_instance(profile, "profile.schema.json", source, schemas, schema_registry)
         diagnostics.extend(profile_errors)
         if not profile_errors:
-            diagnostics.extend(profile_semantics(profile, source, workflow, catalog))
+            diagnostics.extend(profile_semantics(profile, source, workflow, catalog, contract_version=contract_version))
         checked += 1
 
     fixture_errors, fixture_count = fixture_diagnostics(
         schemas,
-        registry,
+        schema_registry,
         workflow,
+        bundle_root=context.bundle.root,
+        fixture_manifest_path=context.fixture_manifest_path,
+        contract_version=contract_version,
         catalog=catalog,
     )
     diagnostics.extend(fixture_errors)
     checked += fixture_count
-    return sorted(
-        diagnostics,
-        key=lambda item: (item.source, item.path, item.rule, item.message),
-    ), checked
+
+    if contract_version == "0.2.0":
+        selected_registry = version_registry or load_version_registry(repository_root=ROOT)
+        legacy_errors, legacy_count = legacy_fixture_diagnostics(context, selected_registry)
+        diagnostics.extend(legacy_errors)
+        checked += legacy_count
+
+    scoped = _scope_bundle_diagnostics(diagnostics, context)
+    return sorted(scoped, key=lambda item: (item.source, item.path, item.rule, item.message)), checked
+
+
+def validate_repository() -> tuple[list[Diagnostic], int]:
+    """Validate Registry, immutable v0.1 audit, and complete v0.2 closure."""
+    diagnostics, checked = registry_contract_diagnostics()
+    try:
+        version_registry = load_version_registry(repository_root=ROOT)
+    except ContractResolutionError as exc:
+        diagnostics.append(Diagnostic("contracts/registry.yaml", "$", exc.rule, str(exc)))
+        return sorted(diagnostics, key=lambda item: (item.source, item.path, item.rule, item.message)), checked
+
+    checked += 1
+    for failure in verify_integrity(version_registry, repository_root=ROOT):
+        diagnostics.append(Diagnostic("contracts/0.1.0-baseline.sha256.json", "$", "contract_integrity", failure))
+
+    for version, operation in (("0.1.0", "audit"), ("0.2.0", "new_run")):
+        try:
+            bundle = resolve_contract_bundle(
+                version,
+                operation=operation,
+                repository_root=ROOT,
+                registry=version_registry,
+            )
+            context = load_bundle_context(bundle)
+        except ContractResolutionError as exc:
+            diagnostics.append(Diagnostic("contracts/registry.yaml", f"$.registry.versions.{version}", exc.rule, str(exc)))
+            continue
+        bundle_errors, bundle_count = validate_bundle(context, version_registry=version_registry)
+        diagnostics.extend(bundle_errors)
+        checked += bundle_count
+    return sorted(diagnostics, key=lambda item: (item.source, item.path, item.rule, item.message)), checked
+
 
 def main() -> int:
     try:

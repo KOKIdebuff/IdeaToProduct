@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Product Profile Contract",
+  "$defs": {
+    "research_node": {
+      "type": "object",
+      "required": ["mode", "priority"],
+      "properties": {
+        "mode": {"enum": ["required", "optional", "disabled"]},
+        "priority": {"enum": ["high", "medium", "low"]}
+      },
+      "additionalProperties": false
+    },
+    "extension": {
+      "type": "object",
+      "required": ["id", "node", "insert_after", "before", "required", "config"],
+      "properties": {
+        "id": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "node": {"$ref": "workflow.schema.json#/$defs/node"},
+        "insert_after": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "before": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "required": {"type": "boolean"},
+        "config": {"type": "object", "additionalProperties": true}
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": ["profile", "research_nodes", "research_defaults", "competitor_visualizations", "extra_questions", "extensions"],
+  "properties": {
+    "profile": {
+      "type": "object",
+      "required": ["id", "version"],
+      "properties": {
+        "id": {"enum": ["developer_tool", "ai_agent_product", "consumer_app", "b2b_saas"]},
+        "version": {"$ref": "common.schema.json#/$defs/schema_version"}
+      },
+      "additionalProperties": false
+    },
+    "research_nodes": {
+      "type": "object",
+      "required": ["competitor", "users", "market", "technology"],
+      "properties": {
+        "competitor": {"$ref": "#/$defs/research_node"},
+        "users": {"$ref": "#/$defs/research_node"},
+        "market": {"$ref": "#/$defs/research_node"},
+        "technology": {"$ref": "#/$defs/research_node"}
+      },
+      "additionalProperties": false
+    },
+    "research_defaults": {
+      "type": "object",
+      "required": ["competitor_count", "primary_sources", "user_evidence_items", "technology_items"],
+      "properties": {
+        "competitor_count": {"type": "integer", "minimum": 1},
+        "primary_sources": {"type": "integer", "minimum": 1},
+        "user_evidence_items": {"type": "integer", "minimum": 1},
+        "technology_items": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "competitor_visualizations": {
+      "type": "object",
+      "required": ["required"],
+      "properties": {
+        "required": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {"enum": ["feature_matrix", "feature_ux_matrix", "capability_matrix", "positioning_map", "momentum_comparison", "oss_activity", "cost_performance", "ecosystem_momentum", "pricing_comparison", "sentiment_distribution", "integration_security_coverage"]}
+        },
+        "choose_one": {
+          "type": "object",
+          "required": ["options", "selected_by"],
+          "properties": {
+            "options": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"enum": ["pricing_comparison", "sentiment_distribution"]}},
+            "selected_by": {"const": "research_contract"}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "extra_questions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "extensions": {"type": "array", "items": {"$ref": "#/$defs/extension"}}
+  },
+  "additionalProperties": false
+}

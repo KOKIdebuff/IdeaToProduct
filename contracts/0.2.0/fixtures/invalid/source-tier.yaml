@@ -1,0 +1,18 @@
+source:
+  id: SRC-INVALID
+  source_type: community_discussion
+  canonical_url: https://example.com/community
+  title: Invalid tier example
+  publisher: Example
+  author: null
+  published_at: null
+  accessed_at: "2026-08-08T04:00:00Z"
+  source_tier: 5
+  access_status: public
+  license_or_access_notes: null
+  content_hash: null
+  excerpt_or_summary: null
+  excerpt_word_count: 0
+  freshness_status: UNKNOWN
+  untrusted_content: true
+  contains_personal_data: false

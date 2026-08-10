@@ -1,0 +1,14 @@
+artifact:
+  id: ART-IDEA-001
+  type: idea_definition
+  schema_version: 0.2.0
+  version: 1
+  produced_by:
+    skill: idea-intake
+    attempt: ATT-00001
+  created_at: "2026-08-08T04:00:00Z"
+  supersedes: null
+  status: active
+  content_hash: sha256:0000000000000000000000000000000000000000000000000000000000000000
+payload:
+  problem_statement: Example problem

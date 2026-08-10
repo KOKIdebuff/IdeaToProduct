@@ -1,0 +1,34 @@
+skill:
+  id: competitor-normalizer
+  version: 0.2.0
+  type: transform
+inputs:
+  required: [competitor_ranking, competitor_deep_dive]
+  optional: []
+reads:
+  - artifacts/02-research/competitors/ranking.yaml
+  - artifacts/02-research/competitors/deep-dives/
+writes:
+  - artifacts/02-research/competitors/competitor-dataset.json
+output_contracts:
+  - artifact_type: competitor_dataset
+    write: artifacts/02-research/competitors/competitor-dataset.json
+    schema_ref: schemas/competitor.schema.json#/$defs/competitor_dataset
+    template_ref: null
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/02-research/competitors/competitor-dataset.json
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 0
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [competitor_dataset]
+  all_selected_competitors_represented: true
+on_failure: []

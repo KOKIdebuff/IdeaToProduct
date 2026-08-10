@@ -1,0 +1,53 @@
+registry:
+  default_new_run_version: 0.2.0
+  path_resolution: repository_root_relative
+  versions:
+    0.1.0:
+      status: immutable_baseline
+      bundle_root: .
+      new_runs_allowed: false
+      resume_allowed: false
+      audit_allowed: true
+    0.2.0:
+      status: current
+      bundle_root: contracts/0.2.0
+      new_runs_allowed: true
+      resume_allowed: true
+      audit_allowed: true
+  compatibility_matrix:
+    default_policy: deny
+    rules:
+      - id: source_seed_v1
+        source_contract_version: 0.1.0
+        target_contract_version: 0.2.0
+        ref_type: source
+        purpose: seed_current_research
+        access: read_only
+        current_manifest_allowed: false
+        state_driving_allowed: false
+        required_revalidation: [source_schema, content_hash, freshness, provenance, security, verification]
+      - id: evidence_seed_v1
+        source_contract_version: 0.1.0
+        target_contract_version: 0.2.0
+        ref_type: evidence
+        purpose: seed_current_research
+        access: read_only
+        current_manifest_allowed: false
+        state_driving_allowed: false
+        required_revalidation: [source_schema, content_hash, freshness, provenance, security, verification]
+      - id: claim_seed_v1
+        source_contract_version: 0.1.0
+        target_contract_version: 0.2.0
+        ref_type: claim
+        purpose: seed_current_research
+        access: read_only
+        current_manifest_allowed: false
+        state_driving_allowed: false
+        required_revalidation: [source_schema, content_hash, freshness, provenance, security, verification]
+  integrity:
+    baseline_manifest: contracts/0.1.0-baseline.sha256.json
+    frozen_documents_sha256:
+      PRD_v0.1.md: 4f30af7ad396f618bd3a06f82194cd8bb9a2d1fc378c04d3cd7986ee843cbf94
+      PRD_v0.2.md: 159f8e7298fa118225d686cd1d4cf0d044fd11a879cebb73d82186ecd5fe9797
+      SPEC_v0.1.md: 3ff75e1c02d6d4088d45c210349f5ec4ae5620d453a63d82bc34a2219e1079ee
+      SPEC_v0.2.md: 9cd4a7cbf284499752974213ff2ac8eb48a5ecb15951e92e1a89cf1b98f4b4e4

@@ -1,0 +1,29 @@
+schema_version: 0.2.0
+workflow_id: product-discovery
+workflow_version: 0.2.0
+run_id: run_20260809_001
+state_version: 3
+workflow_status: WAITING_FOR_USER
+readiness_status: null
+current_gate: gate_research
+current_interaction:
+  node_id: idea
+  attempt_id: ATT-IDEA-001
+  method: clarification
+  question_id: IQ-001
+  round: 1
+  checkpoint_ref: runtime/attempts/ATT-IDEA-001/checkpoints/CP-0002.json
+global_research_cycle: 0
+profile_ref: developer_tool@0.2.0
+research_contract_ref: null
+nodes:
+  idea:
+    status: WAITING_FOR_USER
+    attempt_count: 1
+    active_attempt_id: ATT-IDEA-001
+    interaction_checkpoint_ref: runtime/attempts/ATT-IDEA-001/checkpoints/CP-0002.json
+    artifact_refs: []
+  contract:
+    status: PENDING
+    attempt_count: 0
+    artifact_refs: []

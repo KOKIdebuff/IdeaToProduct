@@ -1,0 +1,11 @@
+/.gitattributes text eol=lf
+/PRD_v*.md text eol=lf
+/SPEC_v*.md text eol=lf
+/workflow.yaml text eol=lf
+/profiles/** text eol=lf
+/schemas/** text eol=lf
+/skills/** text eol=lf
+/subgraphs/** text eol=lf
+/templates/** text eol=lf
+/fixtures/contracts/** text eol=lf
+/contracts/** text eol=lf
