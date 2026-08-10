@@ -1,0 +1,35 @@
+skill:
+  id: competitor-analysis
+  version: 0.1.0
+  type: analysis
+inputs:
+  required: [competitor_dataset, research_contract]
+  optional: [source_index]
+reads:
+  - artifacts/01-contract/research-contract.yaml
+  - artifacts/02-research/competitors/competitor-dataset.json
+  - artifacts/02-research/source-index.json
+writes:
+  - artifacts/02-research/competitors/analysis/
+output_contracts:
+  - artifact_type: competitor_analysis
+    write: artifacts/02-research/competitors/analysis/
+    schema_ref: schemas/competitor.schema.json#/$defs/competitor_analysis
+    template_ref: null
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/02-research/competitors/analysis/
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 0
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [competitor_analysis]
+  methodology_required: true
+on_failure: []

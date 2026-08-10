@@ -16,12 +16,20 @@
     {"path": "fixtures/contracts/valid/proof-result.yaml", "schema": "proof-result.schema.json", "expected_valid": true, "semantics": ["references"]},
     {"path": "fixtures/contracts/valid/artifact-manifest.json", "schema": "artifact-manifest.schema.json", "expected_valid": true},
     {"path": "fixtures/contracts/valid/readiness.yaml", "schema": "readiness-result.schema.json", "expected_valid": true, "semantics": ["references"]},
+    {"path": "fixtures/contracts/valid/idea-definition.yaml", "schema": "idea.schema.json", "expected_valid": true},
+    {"path": "fixtures/contracts/valid/competitor-dataset.yaml", "schema": "competitor.schema.json", "expected_valid": true},
+    {"path": "fixtures/contracts/valid/research-contract.yaml", "schema": "research.schema.json", "expected_valid": true},
+    {"path": "fixtures/contracts/valid/chart-bundle.yaml", "schema": "chart.schema.json", "expected_valid": true},
     {"path": "fixtures/contracts/invalid/executor-path.yaml", "schema": "executor-request.schema.json", "expected_valid": false, "expected_rule": "pattern"},
     {"path": "fixtures/contracts/invalid/gate-action.yaml", "schema": "gate.schema.json", "expected_valid": false, "expected_rule": "enum"},
     {"path": "fixtures/contracts/invalid/state-version.yaml", "schema": "workflow-state.schema.json", "expected_valid": false, "expected_rule": "minimum"},
     {"path": "fixtures/contracts/invalid/source-tier.yaml", "schema": "source.schema.json", "expected_valid": false, "expected_rule": "maximum"},
     {"path": "fixtures/contracts/invalid/executor-result-error.yaml", "schema": "executor-result.schema.json", "expected_valid": false, "expected_rule": "type"},
     {"path": "fixtures/contracts/invalid/consumer-profile-choice.yaml", "schema": "profile.schema.json", "expected_valid": false, "expected_rule": "profile_choose_one", "semantics": ["profile"]},
-    {"path": "fixtures/contracts/invalid/evidence-missing-source.yaml", "schema": "evidence.schema.json", "expected_valid": false, "expected_rule": "unresolved_source", "semantics": ["references"]}
+    {"path": "fixtures/contracts/invalid/evidence-missing-source.yaml", "schema": "evidence.schema.json", "expected_valid": false, "expected_rule": "unresolved_source", "semantics": ["references"]},
+    {"path": "fixtures/contracts/invalid/idea-definition-missing-problem.yaml", "schema": "idea.schema.json", "expected_valid": false, "expected_rule": "required"},
+    {"path": "fixtures/contracts/invalid/competitor-temporal-metric.yaml", "schema": "competitor.schema.json", "expected_valid": false, "expected_rule": "required"},
+    {"path": "fixtures/contracts/invalid/research-contract-missing-source-types.yaml", "schema": "research.schema.json", "expected_valid": false, "expected_rule": "required"},
+    {"path": "fixtures/contracts/invalid/chart-bundle-missing-data.yaml", "schema": "chart.schema.json", "expected_valid": false, "expected_rule": "required"}
   ]
 }

@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Idea Artifact Contracts",
+  "$defs": {
+    "idea_definition": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "idea", "problem", "target_users", "proposed_solution", "assumptions", "unknowns", "non_goals", "confidence"],
+          "properties": {
+            "artifact": {
+              "type": "object",
+              "properties": {"type": {"const": "idea_definition"}}
+            },
+            "idea": {
+              "type": "object",
+              "required": ["original"],
+              "properties": {"original": {"type": "string", "minLength": 1}},
+              "additionalProperties": false
+            },
+            "problem": {
+              "type": "object",
+              "required": ["statement"],
+              "properties": {"statement": {"type": "string", "minLength": 1}},
+              "additionalProperties": false
+            },
+            "target_users": {
+              "type": "object",
+              "required": ["primary", "secondary"],
+              "properties": {
+                "primary": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "secondary": {"type": "array", "items": {"type": "string", "minLength": 1}}
+              },
+              "additionalProperties": false
+            },
+            "proposed_solution": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "assumptions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "claim", "status"],
+                "properties": {
+                  "id": {"$ref": "common.schema.json#/$defs/machine_id"},
+                  "claim": {"type": "string", "minLength": 1},
+                  "status": {"const": "unvalidated"}
+                },
+                "additionalProperties": false
+              }
+            },
+            "unknowns": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "non_goals": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "confidence": {
+              "type": "object",
+              "required": ["overall"],
+              "properties": {"overall": {"enum": ["high", "medium", "low", "insufficient"]}},
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "$ref": "#/$defs/idea_definition"
+}

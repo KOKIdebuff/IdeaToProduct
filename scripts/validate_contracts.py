@@ -11,7 +11,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 from urllib.parse import unquote, urlparse
 
 import yaml
@@ -25,26 +25,122 @@ SCHEMA_DIR = ROOT / "schemas"
 PROFILE_DIR = ROOT / "profiles"
 FIXTURE_MANIFEST = ROOT / "fixtures" / "contracts" / "manifest.json"
 MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
+CONTRACT_VERSION = "0.1.0"
 
-CORE_NODES = {
-    "idea",
-    "contract",
-    "gate_research",
-    "research_verifier",
-    "research_gap",
-    "evidence_waiver",
-    "research_synthesis",
-    "opportunity",
-    "gate_direction",
-    "definition",
-    "feasibility",
-    "proof",
-    "proof_result",
-    "scope",
-    "gate_scope",
-    "prd",
-    "prd_consistency_verifier",
-    "build_readiness_verifier",
+REQUIRED_SCHEMA_NAMES = frozenset({
+    "artifact-manifest.schema.json",
+    "artifact.schema.json",
+    "chart.schema.json",
+    "claim.schema.json",
+    "common.schema.json",
+    "competitor.schema.json",
+    "decision.schema.json",
+    "evidence.schema.json",
+    "executor-request.schema.json",
+    "executor-result.schema.json",
+    "gate.schema.json",
+    "idea.schema.json",
+    "profile.schema.json",
+    "proof-result.schema.json",
+    "readiness-result.schema.json",
+    "research.schema.json",
+    "run-policy.schema.json",
+    "skill.schema.json",
+    "source.schema.json",
+    "subgraph.schema.json",
+    "verification.schema.json",
+    "workflow-state.schema.json",
+    "workflow.schema.json",
+})
+REQUIRED_SKILL_IDS = frozenset({
+    "idea-intake",
+    "research-contract",
+    "competitor-discovery",
+    "competitor-ranking",
+    "competitor-deep-dive",
+    "competitor-normalizer",
+    "competitor-analysis",
+    "competitor-visualization",
+    "competitor-verifier",
+    "user-evidence",
+    "market-landscape",
+    "oss-tech-landscape",
+    "research-verifier",
+    "research-gap",
+    "research-synthesis",
+    "opportunity-mapping",
+    "product-definition",
+    "feasibility-review",
+    "proof-planner",
+    "mvp-scope",
+    "prd-generator",
+    "prd-consistency-verifier",
+    "build-readiness-verifier",
+})
+REQUIRED_SUBGRAPH_IDS = frozenset({"competitor-research"})
+REQUIRED_TEMPLATE_CONTRACTS = {
+    "templates/competitor-report.md": "competitor_report",
+    "templates/synthesis.md": "research_synthesis",
+    "templates/product-definition.md": "product_definition",
+    "templates/feasibility.md": "feasibility_review",
+    "templates/prd.md": "prd",
+}
+SKILL_MARKDOWN_SECTIONS = (
+    "Purpose",
+    "Trigger",
+    "Inputs",
+    "Reads",
+    "Tasks",
+    "Required Outputs",
+    "Evidence Rules",
+    "Completion Criteria",
+    "Verification",
+    "Failure Conditions",
+    "Retry Strategy",
+    "Forbidden Behavior",
+    "Permissions",
+    "Budget",
+    "Executor Requirements",
+    "Next",
+)
+SKILL_INTERACTION_SECTION = "Interaction Model"
+READINESS_SCHEMA_REF = "schemas/readiness-result.schema.json"
+
+CORE_NODE_CONTRACTS: dict[str, tuple[str, str]] = {
+    "idea": ("skill", "idea-intake"),
+    "contract": ("skill", "research-contract"),
+    "gate_research": ("human_gate", "research-scope"),
+    "competitor": ("subgraph", "competitor-research"),
+    "users": ("skill", "user-evidence"),
+    "market": ("skill", "market-landscape"),
+    "technology": ("skill", "oss-tech-landscape"),
+    "research_verifier": ("verifier", "research-verifier"),
+    "research_gap": ("skill", "research-gap"),
+    "evidence_waiver": ("human_gate", "evidence-waiver"),
+    "research_synthesis": ("skill", "research-synthesis"),
+    "opportunity": ("skill", "opportunity-mapping"),
+    "gate_direction": ("human_gate", "product-direction"),
+    "definition": ("skill", "product-definition"),
+    "feasibility": ("skill", "feasibility-review"),
+    "proof": ("skill", "proof-planner"),
+    "proof_result": ("external_input", "proof-result"),
+    "scope": ("skill", "mvp-scope"),
+    "gate_scope": ("human_gate", "mvp-scope"),
+    "prd": ("skill", "prd-generator"),
+    "prd_consistency_verifier": ("verifier", "prd-consistency-verifier"),
+    "build_readiness_verifier": ("verifier", "build-readiness-verifier"),
+}
+COMPETITOR_SUBGRAPH_NODE_CONTRACTS: dict[str, tuple[str, str]] = {
+    "discovery": ("skill", "competitor-discovery"),
+    "candidate_ranking": ("skill", "competitor-ranking"),
+    "deep_dive": ("skill", "competitor-deep-dive"),
+    "normalizer": ("skill", "competitor-normalizer"),
+    "feature_analysis": ("skill", "competitor-analysis"),
+    "traction_analysis": ("skill", "competitor-analysis"),
+    "review_analysis": ("skill", "competitor-analysis"),
+    "pricing_analysis": ("skill", "competitor-analysis"),
+    "visualization": ("skill", "competitor-visualization"),
+    "competitor_verifier": ("verifier", "competitor-verifier"),
 }
 RESEARCH_BRANCHES = {"competitor", "users", "market", "technology"}
 RESULT_FIELDS = {
@@ -96,6 +192,61 @@ class Diagnostic:
         return f"{location} [{self.rule}] {self.message}"
 
 
+@dataclass(frozen=True)
+class RepositoryCatalog:
+    root: Path
+    schema_names: frozenset[str]
+    skill_ids: frozenset[str]
+    subgraph_ids: frozenset[str]
+    template_paths: frozenset[str]
+
+
+class DuplicateKeyError(ValueError):
+    """Raised when YAML contains a duplicate mapping key."""
+
+
+class _UniqueKeySafeLoader(yaml.SafeLoader):
+    pass
+
+
+def _construct_unique_mapping(loader: _UniqueKeySafeLoader, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+    mapping: dict[Any, Any] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            duplicate = key in mapping
+        except TypeError as exc:
+            raise DuplicateKeyError(f"Unhashable YAML mapping key at line {key_node.start_mark.line + 1}") from exc
+        if duplicate:
+            raise DuplicateKeyError(f"Duplicate YAML key {key!r} at line {key_node.start_mark.line + 1}")
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueKeySafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_unique_mapping,
+)
+
+
+def _safe_load_unique_yaml(text: str) -> Any:
+    """Load YAML with SafeLoader semantics while rejecting duplicate keys."""
+    loader = _UniqueKeySafeLoader(text)
+    try:
+        return loader.get_single_data()
+    finally:
+        loader.dispose()
+
+
+def _construct_unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise DuplicateKeyError(f"Duplicate JSON key {key!r}")
+        result[key] = value
+    return result
+
+
 def _display_path(path: Path) -> str:
     try:
         return path.resolve().relative_to(ROOT).as_posix()
@@ -119,14 +270,102 @@ def load_document(path: Path) -> Any:
         raise ValueError(f"Document exceeds {MAX_DOCUMENT_BYTES} byte limit: {path}")
     text = path.read_text(encoding="utf-8")
     if path.suffix.lower() == ".json":
-        return json.loads(text)
-    return yaml.safe_load(text)
+        return json.loads(text, object_pairs_hook=_construct_unique_json_object)
+    return _safe_load_unique_yaml(text)
 
 
-def load_schemas() -> tuple[dict[str, dict[str, Any]], Registry]:
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _contains_symlink(path: Path, root: Path) -> bool:
+    try:
+        relative = path.absolute().relative_to(root.absolute())
+    except ValueError:
+        return True
+    current = root.absolute()
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            return True
+    return False
+
+
+def build_repository_catalog(root: Path = ROOT) -> RepositoryCatalog:
+    schema_dir = root / "schemas"
+    skill_dir = root / "skills"
+    subgraph_dir = root / "subgraphs"
+    template_dir = root / "templates"
+    return RepositoryCatalog(
+        root=root,
+        schema_names=frozenset(path.name for path in schema_dir.glob("*.schema.json") if path.is_file()),
+        skill_ids=frozenset(path.name for path in skill_dir.iterdir() if path.is_dir()) if skill_dir.is_dir() else frozenset(),
+        subgraph_ids=frozenset(path.stem for path in subgraph_dir.glob("*.yaml") if path.is_file()),
+        template_paths=frozenset(
+            path.relative_to(root).as_posix() for path in template_dir.glob("*.md") if path.is_file()
+        ),
+    )
+
+
+def _inventory_difference_diagnostics(
+    actual: frozenset[str],
+    expected: frozenset[str],
+    source: str,
+    label: str,
+    contract_version: str = CONTRACT_VERSION,
+) -> list[Diagnostic]:
+    diagnostics: list[Diagnostic] = []
+    missing = sorted(expected - actual)
+    unexpected = sorted(actual - expected)
+    if missing:
+        diagnostics.append(Diagnostic(source, "$", "missing_contract_asset", f"Missing v{contract_version} {label}: {', '.join(missing)}"))
+    if unexpected:
+        diagnostics.append(Diagnostic(source, "$", "unexpected_contract_asset", f"Unexpected v{contract_version} {label}: {', '.join(unexpected)}"))
+    return diagnostics
+
+
+def repository_inventory_diagnostics(
+    catalog: RepositoryCatalog,
+    *,
+    contract_version: str = CONTRACT_VERSION,
+) -> list[Diagnostic]:
+    diagnostics: list[Diagnostic] = []
+    diagnostics.extend(_inventory_difference_diagnostics(catalog.schema_names, REQUIRED_SCHEMA_NAMES, "schemas", "schemas", contract_version))
+    diagnostics.extend(_inventory_difference_diagnostics(catalog.skill_ids, REQUIRED_SKILL_IDS, "skills", "skills", contract_version))
+    diagnostics.extend(_inventory_difference_diagnostics(catalog.subgraph_ids, REQUIRED_SUBGRAPH_IDS, "subgraphs", "subgraphs", contract_version))
+    diagnostics.extend(_inventory_difference_diagnostics(catalog.template_paths, frozenset(REQUIRED_TEMPLATE_CONTRACTS), "templates", "templates", contract_version))
+
+    for skill_id in sorted(REQUIRED_SKILL_IDS & catalog.skill_ids):
+        for filename in ("SKILL.md", "skill.yaml"):
+            path = catalog.root / "skills" / skill_id / filename
+            source = path.relative_to(catalog.root).as_posix()
+            if not path.is_file():
+                diagnostics.append(Diagnostic(source, "$", "missing_contract_asset", f"Skill {skill_id} must contain {filename}"))
+
+    expected_paths = [
+        *(catalog.root / "schemas" / name for name in REQUIRED_SCHEMA_NAMES & catalog.schema_names),
+        *(catalog.root / "subgraphs" / f"{name}.yaml" for name in REQUIRED_SUBGRAPH_IDS & catalog.subgraph_ids),
+        *(catalog.root / path for path in set(REQUIRED_TEMPLATE_CONTRACTS) & catalog.template_paths),
+    ]
+    for skill_id in REQUIRED_SKILL_IDS & catalog.skill_ids:
+        expected_paths.extend([
+            catalog.root / "skills" / skill_id / "skill.yaml",
+            catalog.root / "skills" / skill_id / "SKILL.md",
+        ])
+    for path in expected_paths:
+        if path.exists() and (_contains_symlink(path, catalog.root) or not _is_within(path, catalog.root)):
+            diagnostics.append(Diagnostic(_display_path(path), "$", "unsafe_contract_path", "Contract assets may not use symbolic links or escape the repository"))
+    return diagnostics
+
+
+def load_schemas(schema_dir: Path = SCHEMA_DIR) -> tuple[dict[str, dict[str, Any]], Registry]:
     schemas: dict[str, dict[str, Any]] = {}
     resources: list[tuple[str, Resource[Any]]] = []
-    for path in sorted(SCHEMA_DIR.glob("*.schema.json")):
+    for path in sorted(schema_dir.glob("*.schema.json")):
         schema = load_document(path)
         if not isinstance(schema, dict):
             raise TypeError(f"Schema must be an object: {path}")
@@ -145,6 +384,8 @@ def schema_diagnostics(schemas: dict[str, dict[str, Any]]) -> list[Diagnostic]:
         except SchemaError as exc:
             diagnostics.append(Diagnostic(f"schemas/{name}", _json_path(exc.path), "meta_schema", exc.message))
     diagnostics.extend(reference_diagnostics(schemas))
+    diagnostics.extend(artifact_schema_diagnostics(schemas))
+    diagnostics.extend(competitor_verification_contract_diagnostics(schemas))
     return diagnostics
 
 
@@ -178,6 +419,23 @@ def _resolve_pointer(document: Any, fragment: str) -> bool:
     return True
 
 
+def _pointer_value(document: Any, fragment: str) -> Any | None:
+    if fragment in ("", "#"):
+        return document
+    if not fragment.startswith("#/"):
+        return None
+    current = document
+    for raw in fragment[2:].split("/"):
+        token = unquote(raw).replace("~1", "/").replace("~0", "~")
+        if isinstance(current, dict) and token in current:
+            current = current[token]
+        elif isinstance(current, list) and token.isdigit() and int(token) < len(current):
+            current = current[int(token)]
+        else:
+            return None
+    return current
+
+
 def reference_diagnostics(schemas: dict[str, dict[str, Any]]) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     for owner, schema in schemas.items():
@@ -200,6 +458,103 @@ def reference_diagnostics(schemas: dict[str, dict[str, Any]]) -> list[Diagnostic
             if not _resolve_pointer(target, fragment):
                 diagnostics.append(Diagnostic(f"schemas/{owner}", _json_path(path), "dangling_ref", f"Referenced fragment does not exist: {reference}"))
     return diagnostics
+
+
+def _parse_output_schema_ref(reference: Any) -> tuple[str, str] | None:
+    if not isinstance(reference, str):
+        return None
+    parsed = urlparse(reference)
+    if parsed.scheme or parsed.netloc or parsed.params or parsed.query:
+        return None
+    normalized = parsed.path.replace("\\", "/")
+    parts = PurePosixPath(normalized).parts
+    if len(parts) != 2 or parts[0] != "schemas" or parts[1] in {".", ".."}:
+        return None
+    fragment = f"#{parsed.fragment}" if parsed.fragment else ""
+    if fragment and not fragment.startswith("#/"):
+        return None
+    return parts[1], fragment
+
+
+def resolve_output_schema_reference(reference: Any, schemas: Mapping[str, dict[str, Any]]) -> tuple[str, Any] | None:
+    parsed = _parse_output_schema_ref(reference)
+    if parsed is None:
+        return None
+    schema_name, fragment = parsed
+    schema = schemas.get(schema_name)
+    if schema is None:
+        return None
+    value = _pointer_value(schema, fragment)
+    if value is None:
+        return None
+    return schema_name, value
+
+
+def _artifact_type_consts(
+    value: Any,
+    schemas: Mapping[str, dict[str, Any]],
+    owner: str,
+    seen: set[tuple[str, str]] | None = None,
+) -> set[str]:
+    if seen is None:
+        seen = set()
+    found: set[str] = set()
+    if isinstance(value, dict):
+        artifact_type = value.get("properties", {}).get("artifact", {}).get("properties", {}).get("type", {}).get("const")
+        if isinstance(artifact_type, str):
+            found.add(artifact_type)
+        reference = value.get("$ref")
+        if isinstance(reference, str):
+            parsed = urlparse(reference)
+            target_name = Path(parsed.path).name if parsed.path else owner
+            fragment = f"#{parsed.fragment}" if parsed.fragment else ""
+            marker = (target_name, fragment)
+            target = schemas.get(target_name)
+            if target is not None and marker not in seen:
+                target_value = _pointer_value(target, fragment)
+                if target_value is not None:
+                    seen.add(marker)
+                    found.update(_artifact_type_consts(target_value, schemas, target_name, seen))
+        for key, child in value.items():
+            if key not in {"$ref", "$defs"}:
+                found.update(_artifact_type_consts(child, schemas, owner, seen))
+    elif isinstance(value, list):
+        for child in value:
+            found.update(_artifact_type_consts(child, schemas, owner, seen))
+    return found
+
+
+def artifact_schema_diagnostics(schemas: Mapping[str, dict[str, Any]]) -> list[Diagnostic]:
+    diagnostics: list[Diagnostic] = []
+    for schema_name in ("idea.schema.json", "competitor.schema.json", "research.schema.json", "chart.schema.json"):
+        schema = schemas.get(schema_name)
+        if schema is None:
+            continue
+        references = {reference for _, reference in _walk_refs(schema)}
+        if not any(urlparse(reference).path == "artifact.schema.json" for reference in references):
+            diagnostics.append(Diagnostic(f"schemas/{schema_name}", "$", "artifact_schema_contract", "Business Artifact Schema must compose artifact.schema.json"))
+        if not isinstance(schema.get("$ref"), str):
+            diagnostics.append(Diagnostic(f"schemas/{schema_name}", "$.$ref", "artifact_schema_contract", "Business Artifact Schema must expose a top-level primary Artifact contract"))
+        elif not _artifact_type_consts(schema, schemas, schema_name):
+            diagnostics.append(Diagnostic(f"schemas/{schema_name}", "$", "artifact_schema_contract", "Business Artifact Schema must lock at least one artifact.type"))
+    return diagnostics
+
+
+def competitor_verification_contract_diagnostics(schemas: Mapping[str, dict[str, Any]]) -> list[Diagnostic]:
+    schema = schemas.get("verification.schema.json")
+    if schema is None:
+        return []
+    issue = schema.get("$defs", {}).get("competitor_issue", {})
+    required = set(issue.get("required", [])) if isinstance(issue, dict) else set()
+    return_to = issue.get("properties", {}).get("return_to", {}) if isinstance(issue, dict) else {}
+    if {"retry_targets", "return_to"}.issubset(required) and return_to.get("const") == "competitor_verifier":
+        return []
+    return [Diagnostic(
+        "schemas/verification.schema.json",
+        "$.$defs.competitor_issue",
+        "competitor_verification_contract",
+        "Competitor verification issues must require retry_targets and return_to=competitor_verifier",
+    )]
 
 
 def validate_instance(
@@ -256,30 +611,82 @@ def _cycle(nodes: dict[str, dict[str, Any]]) -> list[str] | None:
     return None
 
 
-def workflow_semantics(document: dict[str, Any], source: str) -> list[Diagnostic]:
+def graph_semantics(
+    nodes: dict[str, dict[str, Any]],
+    source: str,
+    *,
+    path_prefix: str = "$.nodes",
+    cycle_rule: str = "dag_cycle",
+) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
+    for node_id, node in nodes.items():
+        if not isinstance(node, dict):
+            continue
+        dependencies = node.get("depends_on", [])
+        if not isinstance(dependencies, list):
+            continue
+        if node_id in dependencies:
+            diagnostics.append(Diagnostic(source, f"{path_prefix}.{node_id}.depends_on", "self_dependency", "Node cannot depend on itself"))
+        for dependency in dependencies:
+            if dependency not in nodes:
+                diagnostics.append(Diagnostic(source, f"{path_prefix}.{node_id}.depends_on", "missing_dependency", f"Unknown dependency: {dependency}"))
+    cycle = _cycle(nodes)
+    if cycle:
+        diagnostics.append(Diagnostic(source, path_prefix, cycle_rule, "Dependency cycle: " + " -> ".join(cycle)))
+    return diagnostics
+
+
+def workflow_semantics(
+    document: dict[str, Any],
+    source: str,
+    catalog: RepositoryCatalog | None = None,
+    *,
+    contract_version: str = CONTRACT_VERSION,
+) -> list[Diagnostic]:
+    diagnostics: list[Diagnostic] = []
+    workflow_metadata = document.get("workflow", {})
+    if isinstance(workflow_metadata, dict):
+        for field in ("version", "schema_version"):
+            if workflow_metadata.get(field) != contract_version:
+                diagnostics.append(Diagnostic(source, f"$.workflow.{field}", "contract_version", f"Workflow {field} must be {contract_version}"))
     nodes = document.get("nodes", {})
     if not isinstance(nodes, dict):
         return diagnostics
 
-    missing_core = sorted(CORE_NODES - set(nodes))
+    missing_core = sorted(set(CORE_NODE_CONTRACTS) - set(nodes))
     if missing_core:
         diagnostics.append(Diagnostic(source, "$.nodes", "missing_core_nodes", f"Missing core nodes: {', '.join(missing_core)}"))
+    diagnostics.extend(graph_semantics(nodes, source))
 
     for node_id, node in nodes.items():
         if not isinstance(node, dict):
             continue
         dependencies = node.get("depends_on", [])
-        if node_id in dependencies:
-            diagnostics.append(Diagnostic(source, f"$.nodes.{node_id}.depends_on", "self_dependency", "Node cannot depend on itself"))
-        for dependency in dependencies:
-            if dependency not in nodes:
-                diagnostics.append(Diagnostic(source, f"$.nodes.{node_id}.depends_on", "missing_dependency", f"Unknown dependency: {dependency}"))
 
         expected_field = KIND_FIELD.get(node.get("kind"))
         present_fields = IMPLEMENTATION_FIELDS.intersection(node)
         if expected_field and present_fields != {expected_field}:
             diagnostics.append(Diagnostic(source, f"$.nodes.{node_id}", "kind_contract", f"Kind {node.get('kind')} must use exactly {expected_field}; found {sorted(present_fields)}"))
+
+        if catalog is not None and node.get("kind") in {"skill", "verifier"}:
+            skill_id = node.get("skill")
+            if isinstance(skill_id, str) and skill_id not in catalog.skill_ids:
+                diagnostics.append(Diagnostic(source, f"$.nodes.{node_id}.skill", "missing_skill_reference", f"Referenced Skill Contract does not exist: {skill_id}"))
+        if catalog is not None and node.get("kind") == "subgraph":
+            subgraph_id = node.get("subgraph")
+            if isinstance(subgraph_id, str) and subgraph_id not in catalog.subgraph_ids:
+                diagnostics.append(Diagnostic(source, f"$.nodes.{node_id}.subgraph", "missing_subgraph_reference", f"Referenced Subgraph Contract does not exist: {subgraph_id}"))
+
+        core_contract = CORE_NODE_CONTRACTS.get(node_id)
+        if core_contract:
+            expected_kind, expected_implementation = core_contract
+            if node.get("kind") != expected_kind:
+                diagnostics.append(Diagnostic(source, f"$.nodes.{node_id}.kind", "core_node_mapping", f"Core node {node_id} must keep kind {expected_kind}; found {node.get('kind')}"))
+            else:
+                implementation_field = KIND_FIELD[expected_kind]
+                actual_implementation = node.get(implementation_field)
+                if actual_implementation != expected_implementation:
+                    diagnostics.append(Diagnostic(source, f"$.nodes.{node_id}.{implementation_field}", "core_node_mapping", f"Core node {node_id} must keep {implementation_field} {expected_implementation}; found {actual_implementation}"))
 
         for predicate in _predicates(node.get("when")):
             upstream_id = predicate.get("node")
@@ -313,7 +720,8 @@ def workflow_semantics(document: dict[str, Any], source: str) -> list[Diagnostic
                 if target and target not in nodes:
                     diagnostics.append(Diagnostic(source, f"$.nodes.{node_id}.on_submit", "missing_submit_target", f"Unknown submit target: {target}"))
             schema_ref = on_submit.get("validate")
-            if schema_ref and not (SCHEMA_DIR / schema_ref).is_file():
+            selected_schema_dir = catalog.root / "schemas" if catalog is not None else SCHEMA_DIR
+            if schema_ref and not (selected_schema_dir / schema_ref).is_file():
                 diagnostics.append(Diagnostic(source, f"$.nodes.{node_id}.on_submit.validate", "missing_schema", f"Schema does not exist: {schema_ref}"))
 
         if "trigger_on_terminal_events" in node and node_id != "build_readiness_verifier":
@@ -324,10 +732,6 @@ def workflow_semantics(document: dict[str, Any], source: str) -> list[Diagnostic
         if node_id not in RESEARCH_BRANCHES and node.get("configurable_by_profile"):
             diagnostics.append(Diagnostic(source, f"$.nodes.{node_id}", "profile_branch", "Only the four research branches may be profile-configurable"))
 
-    cycle = _cycle(nodes)
-    if cycle:
-        diagnostics.append(Diagnostic(source, "$.nodes", "dag_cycle", "Dependency cycle: " + " -> ".join(cycle)))
-
     readiness = nodes.get("build_readiness_verifier", {})
     readiness_writers = [node_id for node_id, node in nodes.items() if node.get("skill") == "build-readiness-verifier"]
     if readiness.get("kind") != "verifier" or readiness_writers != ["build_readiness_verifier"]:
@@ -335,9 +739,96 @@ def workflow_semantics(document: dict[str, Any], source: str) -> list[Diagnostic
     return diagnostics
 
 
-def profile_semantics(document: dict[str, Any], source: str, workflow: dict[str, Any]) -> list[Diagnostic]:
+def subgraph_semantics(
+    document: dict[str, Any],
+    source: str,
+    catalog: RepositoryCatalog,
+    skill_output_types: Mapping[str, set[str]] | None = None,
+    *,
+    contract_version: str = CONTRACT_VERSION,
+) -> list[Diagnostic]:
+    diagnostics: list[Diagnostic] = []
+    metadata = document.get("subgraph", {})
+    subgraph_id = metadata.get("id") if isinstance(metadata, dict) else None
+    if source.startswith("subgraphs/") and source.endswith(".yaml"):
+        expected_id = PurePosixPath(source).stem
+        if subgraph_id != expected_id:
+            diagnostics.append(Diagnostic(source, "$.subgraph.id", "contract_identity", f"Subgraph ID must match filename {expected_id}"))
+    if isinstance(metadata, dict):
+        for field in ("version", "schema_version"):
+            if metadata.get(field) != contract_version:
+                diagnostics.append(Diagnostic(source, f"$.subgraph.{field}", "contract_version", f"Subgraph {field} must be {contract_version}"))
+
+    nodes = document.get("nodes", {})
+    if not isinstance(nodes, dict):
+        return diagnostics
+    diagnostics.extend(graph_semantics(nodes, source, cycle_rule="subgraph_dag_cycle"))
+
+    if subgraph_id == "competitor-research":
+        missing = sorted(set(COMPETITOR_SUBGRAPH_NODE_CONTRACTS) - set(nodes))
+        if missing:
+            diagnostics.append(Diagnostic(source, "$.nodes", "missing_subgraph_nodes", f"Missing competitor subgraph nodes: {', '.join(missing)}"))
+        for node_id, (expected_kind, expected_skill) in COMPETITOR_SUBGRAPH_NODE_CONTRACTS.items():
+            node = nodes.get(node_id)
+            if not isinstance(node, dict):
+                continue
+            if node.get("kind") != expected_kind:
+                diagnostics.append(Diagnostic(source, f"$.nodes.{node_id}.kind", "subgraph_node_mapping", f"Subgraph node {node_id} must keep kind {expected_kind}"))
+            elif node.get("skill") != expected_skill:
+                diagnostics.append(Diagnostic(source, f"$.nodes.{node_id}.skill", "subgraph_node_mapping", f"Subgraph node {node_id} must keep skill {expected_skill}"))
+
+    for node_id, node in nodes.items():
+        if not isinstance(node, dict) or node.get("kind") not in {"skill", "verifier"}:
+            continue
+        skill_id = node.get("skill")
+        if isinstance(skill_id, str) and skill_id not in catalog.skill_ids:
+            diagnostics.append(Diagnostic(source, f"$.nodes.{node_id}.skill", "missing_skill_reference", f"Referenced Skill Contract does not exist: {skill_id}"))
+        if skill_id == "build-readiness-verifier":
+            diagnostics.append(Diagnostic(source, f"$.nodes.{node_id}.skill", "readiness_writer", "Subgraphs cannot invoke the unique Build Readiness writer"))
+
+    dependency_targets = {
+        dependency
+        for node in nodes.values()
+        if isinstance(node, dict)
+        for dependency in node.get("depends_on", [])
+        if isinstance(dependency, str)
+    }
+    terminal_nodes = sorted(set(nodes) - dependency_targets)
+    if subgraph_id == "competitor-research" and terminal_nodes != ["competitor_verifier"]:
+        diagnostics.append(Diagnostic(source, "$.nodes", "subgraph_terminal", "competitor_verifier must be the unique terminal node"))
+
+    for index, output in enumerate(document.get("output_contracts", [])):
+        if not isinstance(output, dict):
+            continue
+        producer = output.get("producer")
+        artifact_type = output.get("artifact_type")
+        if producer not in nodes:
+            diagnostics.append(Diagnostic(source, f"$.output_contracts[{index}].producer", "output_contract_producer", f"Unknown output producer: {producer}"))
+            continue
+        if skill_output_types is not None:
+            producer_skill = nodes[producer].get("skill") if isinstance(nodes[producer], dict) else None
+            if not isinstance(producer_skill, str) or artifact_type not in skill_output_types.get(producer_skill, set()):
+                diagnostics.append(Diagnostic(source, f"$.output_contracts[{index}].artifact_type", "output_contract_producer", f"Producer {producer} does not declare output Artifact type {artifact_type}"))
+    return diagnostics
+
+
+def profile_semantics(
+    document: dict[str, Any],
+    source: str,
+    workflow: dict[str, Any],
+    catalog: RepositoryCatalog | None = None,
+    *,
+    contract_version: str = CONTRACT_VERSION,
+) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     profile_id = document.get("profile", {}).get("id")
+    profile_version = document.get("profile", {}).get("version")
+    if profile_version != contract_version:
+        diagnostics.append(Diagnostic(source, "$.profile.version", "contract_version", f"Profile version must be {contract_version}"))
+    if source.startswith("profiles/") and source.endswith(".yaml"):
+        expected_id = PurePosixPath(source).stem.replace("-", "_")
+        if profile_id != expected_id:
+            diagnostics.append(Diagnostic(source, "$.profile.id", "contract_identity", f"Profile ID must match filename {expected_id}"))
     expected = PROFILE_EXPECTATIONS.get(profile_id)
     if expected:
         actual_modes = {key: value.get("mode") for key, value in document.get("research_nodes", {}).items()}
@@ -366,6 +857,17 @@ def profile_semantics(document: dict[str, Any], source: str, workflow: dict[str,
             diagnostics.append(Diagnostic(source, f"$.extensions[{index}]", "extension_anchor", "Extension anchors must reference existing nodes"))
             continue
         node = dict(extension.get("node", {}))
+        extension_config = extension.get("config", {})
+        if isinstance(extension_config, dict) and {"interaction", "max_rounds", "idea_shaping"}.intersection(extension_config):
+            diagnostics.append(Diagnostic(source, f"$.extensions[{index}].config", "profile_interaction_override", "Profile extensions cannot override Idea Shaping interaction policy"))
+        if catalog is not None and node.get("kind") in {"skill", "verifier"}:
+            skill_id = node.get("skill")
+            if isinstance(skill_id, str) and skill_id not in catalog.skill_ids:
+                diagnostics.append(Diagnostic(source, f"$.extensions[{index}].node.skill", "missing_skill_reference", f"Referenced Skill Contract does not exist: {skill_id}"))
+        if catalog is not None and node.get("kind") == "subgraph":
+            subgraph_id = node.get("subgraph")
+            if isinstance(subgraph_id, str) and subgraph_id not in catalog.subgraph_ids:
+                diagnostics.append(Diagnostic(source, f"$.extensions[{index}].node.subgraph", "missing_subgraph_reference", f"Referenced Subgraph Contract does not exist: {subgraph_id}"))
         if node.get("skill") == "build-readiness-verifier" or "trigger_on_terminal_events" in node:
             diagnostics.append(Diagnostic(source, f"$.extensions[{index}].node", "readiness_writer", "Profile extensions cannot add a Readiness writer or terminal trigger"))
         if node.get("kind") == "human_gate" and not extension.get("config", {}).get("rationale"):
@@ -382,9 +884,12 @@ def profile_semantics(document: dict[str, Any], source: str, workflow: dict[str,
 
 
 def _is_safe_relative_path(value: str) -> bool:
-    if not value or value.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", value):
+    if not isinstance(value, str) or not value or value.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", value):
         return False
-    return ".." not in re.split(r"[/\\]+", value)
+    if "\\" in value or urlparse(value).scheme or urlparse(value).netloc:
+        return False
+    parts = PurePosixPath(value.rstrip("/")).parts
+    return bool(parts) and "." not in parts and ".." not in parts
 
 
 def path_semantics(document: dict[str, Any], source: str) -> list[Diagnostic]:
@@ -396,6 +901,143 @@ def path_semantics(document: dict[str, Any], source: str) -> list[Diagnostic]:
     if "executor_request" in document:
         candidates.extend(("$.executor_request.permissions.workspace_write_paths", value) for value in document["executor_request"].get("permissions", {}).get("workspace_write_paths", []))
     return [Diagnostic(source, path, "unsafe_path", f"Path must stay relative to the discovery workspace: {value}") for path, value in candidates if not isinstance(value, str) or not _is_safe_relative_path(value)]
+
+
+def skill_markdown_diagnostics(
+    text: str,
+    source: str,
+    expected_id: str,
+    *,
+    interaction_required: bool = False,
+) -> list[Diagnostic]:
+    diagnostics: list[Diagnostic] = []
+    lines = text.splitlines()
+    h1 = [(index, match.group(1).strip()) for index, line in enumerate(lines) if (match := re.fullmatch(r"#\s+(.+?)\s*", line))]
+    expected_title = f"Skill: {expected_id}"
+    if len(h1) != 1 or h1[0][1] != expected_title:
+        diagnostics.append(Diagnostic(source, "$", "contract_identity", f"SKILL.md must declare exactly '# {expected_title}'"))
+
+    h2 = [(index, match.group(1).strip()) for index, line in enumerate(lines) if (match := re.fullmatch(r"##\s+(.+?)\s*", line))]
+    actual_sections = tuple(title for _, title in h2)
+    expected_sections = list(SKILL_MARKDOWN_SECTIONS)
+    if interaction_required:
+        expected_sections.insert(expected_sections.index("Tasks") + 1, SKILL_INTERACTION_SECTION)
+    expected_tuple = tuple(expected_sections)
+    if actual_sections != expected_tuple:
+        diagnostics.append(Diagnostic(source, "$", "skill_markdown_contract", f"Expected ordered sections: {', '.join(expected_tuple)}"))
+        return diagnostics
+
+    for position, (line_index, title) in enumerate(h2):
+        end = h2[position + 1][0] if position + 1 < len(h2) else len(lines)
+        content = [line.strip() for line in lines[line_index + 1:end] if line.strip() and not line.lstrip().startswith("#")]
+        if not content:
+            diagnostics.append(Diagnostic(source, f"$.sections.{title}", "skill_markdown_contract", f"Section {title} must not be empty"))
+    return diagnostics
+
+
+def template_contract_diagnostics(
+    text: str,
+    source: str,
+    expected_artifact_type: str,
+    *,
+    contract_version: str = CONTRACT_VERSION,
+) -> list[Diagnostic]:
+    diagnostics: list[Diagnostic] = []
+    match = re.match(r"\A---\s*\r?\n(.*?)\r?\n---\s*(?:\r?\n|\Z)", text, flags=re.DOTALL)
+    if match is None:
+        return [Diagnostic(source, "$", "template_contract", "Template must begin with YAML front matter")]
+    try:
+        front_matter = _safe_load_unique_yaml(match.group(1))
+    except (yaml.YAMLError, DuplicateKeyError, TypeError, ValueError) as exc:
+        return [Diagnostic(source, "$", "template_contract", f"Invalid template front matter: {exc}")]
+    expected_id = Path(source).stem
+    expected = {"id": expected_id, "version": contract_version, "artifact_type": expected_artifact_type}
+    actual = front_matter.get("template") if isinstance(front_matter, dict) else None
+    if actual != expected:
+        diagnostics.append(Diagnostic(source, "$.template", "template_contract", f"Expected template metadata {expected}; found {actual}"))
+    if not text[match.end():].strip():
+        diagnostics.append(Diagnostic(source, "$", "template_contract", "Template body must not be empty"))
+    return diagnostics
+
+
+def _workspace_write_allows(write: str, grants: list[Any]) -> bool:
+    normalized_write = write.rstrip("/")
+    for grant in grants:
+        if not isinstance(grant, str) or not _is_safe_relative_path(grant):
+            continue
+        normalized_grant = grant.rstrip("/")
+        if normalized_write == normalized_grant or (grant.endswith("/") and normalized_write.startswith(normalized_grant + "/")):
+            return True
+    return False
+
+
+def skill_contract_diagnostics(
+    document: dict[str, Any],
+    source: str,
+    expected_id: str,
+    catalog: RepositoryCatalog,
+    schemas: Mapping[str, dict[str, Any]],
+    *,
+    contract_version: str = CONTRACT_VERSION,
+) -> list[Diagnostic]:
+    diagnostics = path_semantics(document, source)
+    skill = document.get("skill", {})
+    if skill.get("id") != expected_id:
+        diagnostics.append(Diagnostic(source, "$.skill.id", "contract_identity", f"Skill ID must match directory name {expected_id}"))
+    if skill.get("version") != contract_version:
+        diagnostics.append(Diagnostic(source, "$.skill.version", "contract_version", f"Skill version must be {contract_version}"))
+
+    interaction = document.get("interaction")
+    if contract_version == "0.2.0" and expected_id == "idea-intake" and not isinstance(interaction, dict):
+        diagnostics.append(Diagnostic(source, "$.interaction", "interaction_contract", "v0.2 idea-intake must declare the adaptive Interaction Model"))
+    if isinstance(interaction, dict) and expected_id != "idea-intake":
+        diagnostics.append(Diagnostic(source, "$.interaction", "interaction_contract", "Only idea-intake may declare an Interaction Model in v0.2"))
+
+    writes = document.get("writes", [])
+    output_contracts = document.get("output_contracts", [])
+    declared_output_writes = [item.get("write") for item in output_contracts if isinstance(item, dict)]
+    if isinstance(writes, list) and set(writes) != set(declared_output_writes):
+        diagnostics.append(Diagnostic(source, "$.writes", "output_contract_write", "writes must equal the unique output_contracts write paths"))
+
+    workspace_grants = document.get("permissions", {}).get("workspace_write", [])
+    for index, output in enumerate(output_contracts):
+        if not isinstance(output, dict):
+            continue
+        base_path = f"$.output_contracts[{index}]"
+        artifact_type = output.get("artifact_type")
+        write = output.get("write")
+        if isinstance(write, str) and not _workspace_write_allows(write, workspace_grants):
+            diagnostics.append(Diagnostic(source, f"{base_path}.write", "output_write_permission", f"Output path is not covered by permissions.workspace_write: {write}"))
+
+        schema_ref = output.get("schema_ref")
+        resolved = resolve_output_schema_reference(schema_ref, schemas)
+        if resolved is None:
+            diagnostics.append(Diagnostic(source, f"{base_path}.schema_ref", "output_schema_reference", f"Output Schema reference is unsafe or unresolved: {schema_ref}"))
+        else:
+            schema_name, fragment = resolved
+            template_ref = output.get("template_ref")
+            if schema_ref == "schemas/artifact.schema.json" and isinstance(template_ref, str):
+                expected_template_type = REQUIRED_TEMPLATE_CONTRACTS.get(template_ref)
+                if artifact_type != expected_template_type:
+                    diagnostics.append(Diagnostic(source, f"{base_path}.artifact_type", "output_artifact_type", f"Artifact type {artifact_type} does not match Template contract {expected_template_type}"))
+            else:
+                artifact_types = _artifact_type_consts(fragment, schemas, schema_name)
+                if artifact_type not in artifact_types:
+                    diagnostics.append(Diagnostic(source, f"{base_path}.artifact_type", "output_artifact_type", f"Artifact type {artifact_type} is not locked by {schema_ref}"))
+
+        template_ref = output.get("template_ref")
+        if template_ref is not None:
+            safe_template = isinstance(template_ref, str) and _is_safe_relative_path(template_ref) and template_ref.startswith("templates/")
+            template_path = catalog.root / template_ref if safe_template else None
+            if (
+                not safe_template
+                or template_ref not in catalog.template_paths
+                or template_path is None
+                or _contains_symlink(template_path, catalog.root)
+                or not _is_within(template_path, catalog.root)
+            ):
+                diagnostics.append(Diagnostic(source, f"{base_path}.template_ref", "template_reference", f"Template reference is unsafe or unresolved: {template_ref}"))
+    return diagnostics
 
 
 def gate_semantics(document: dict[str, Any], source: str) -> list[Diagnostic]:
@@ -414,6 +1056,147 @@ def gate_semantics(document: dict[str, Any], source: str) -> list[Diagnostic]:
     recommendation = document.get("recommendation", {}).get("option")
     if recommendation is not None and recommendation not in option_ids:
         diagnostics.append(Diagnostic(source, "$.recommendation.option", "gate_recommendation", "Recommendation must reference an existing option"))
+    return diagnostics
+
+
+def interaction_semantics(document: dict[str, Any], source: str) -> list[Diagnostic]:
+    """Validate cross-field Interaction invariants that JSON Schema cannot express."""
+    diagnostics: list[Diagnostic] = []
+    result = document.get("executor_result")
+    if isinstance(result, dict) and result.get("status") == "WAITING_FOR_USER":
+        request = result.get("interaction_request", {})
+        checkpoint = result.get("interaction_checkpoint", {})
+        if isinstance(request, dict) and isinstance(checkpoint, dict):
+            if request.get("method") != checkpoint.get("current_method"):
+                diagnostics.append(Diagnostic(
+                    source,
+                    "$.executor_result.interaction_checkpoint.current_method",
+                    "interaction_method_mismatch",
+                    "Interaction Request method must match Checkpoint current_method",
+                ))
+            options = request.get("options", [])
+            option_ids = {option.get("id") for option in options if isinstance(option, dict)} if isinstance(options, list) else set()
+            recommendation = request.get("recommendation")
+            if isinstance(recommendation, dict) and recommendation.get("option_id") not in option_ids:
+                diagnostics.append(Diagnostic(
+                    source,
+                    "$.executor_result.interaction_request.recommendation.option_id",
+                    "interaction_recommendation",
+                    "Recommendation must reference an Interaction option",
+                ))
+
+    request = document.get("executor_request")
+    if isinstance(request, dict) and isinstance(request.get("interaction_resume"), dict):
+        checkpoint_ref = request["interaction_resume"].get("checkpoint_ref", "")
+        attempt_id = request.get("attempt_id")
+        expected_fragment = f"runtime/attempts/{attempt_id}/checkpoints/" if isinstance(attempt_id, str) else ""
+        if not expected_fragment or not isinstance(checkpoint_ref, str) or not checkpoint_ref.startswith(expected_fragment):
+            diagnostics.append(Diagnostic(
+                source,
+                "$.executor_request.interaction_resume.checkpoint_ref",
+                "interaction_attempt_mismatch",
+                "Interaction Resume checkpoint must belong to the same Attempt",
+            ))
+
+    current = document.get("current_interaction")
+    nodes = document.get("nodes")
+    if isinstance(current, dict) and isinstance(nodes, dict):
+        node_id = current.get("node_id")
+        node = nodes.get(node_id)
+        if not isinstance(node, dict):
+            diagnostics.append(Diagnostic(source, "$.current_interaction.node_id", "interaction_node", "Current Interaction node must exist in State"))
+        else:
+            if node.get("active_attempt_id") != current.get("attempt_id"):
+                diagnostics.append(Diagnostic(source, "$.current_interaction.attempt_id", "interaction_attempt_mismatch", "State and Node must reference the same active Attempt"))
+            if node.get("interaction_checkpoint_ref") != current.get("checkpoint_ref"):
+                diagnostics.append(Diagnostic(source, "$.current_interaction.checkpoint_ref", "interaction_checkpoint_mismatch", "State and Node must reference the same Interaction Checkpoint"))
+    return diagnostics
+
+
+def research_origin_diagnostics(
+    idea_definition: dict[str, Any],
+    research_contract: dict[str, Any],
+    source: str = "fixtures",
+) -> list[Diagnostic]:
+    """Validate Idea Assumption/Unknown/Seed to Research Question traceability."""
+    diagnostics: list[Diagnostic] = []
+    assumptions = idea_definition.get("assumptions", [])
+    unknowns = idea_definition.get("unknowns", [])
+    seeds = idea_definition.get("research_seeds", {})
+
+    assumption_ids = {
+        item.get("id")
+        for item in assumptions
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    critical_assumptions = {
+        item.get("id")
+        for item in assumptions
+        if isinstance(item, dict) and item.get("criticality") == "high" and isinstance(item.get("id"), str)
+    }
+    unknown_ids = {
+        item.get("id")
+        for item in unknowns
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    researchable_unknowns = {
+        item.get("id")
+        for item in unknowns
+        if isinstance(item, dict) and item.get("researchable") is True and isinstance(item.get("id"), str)
+    }
+    seed_refs: set[str] = set()
+    if isinstance(seeds, dict):
+        for field in ("competitor_questions", "user_questions", "market_questions", "technology_questions"):
+            values = seeds.get(field, [])
+            if isinstance(values, list):
+                seed_refs.update(f"research_seeds.{field}[{index}]" for index in range(len(values)))
+    available_origins = assumption_ids | unknown_ids | seed_refs
+
+    questions = research_contract.get("research_questions", {})
+    used_origins: set[str] = set()
+    question_ids: dict[str, str] = {}
+    question_count = 0
+    if isinstance(questions, dict):
+        for branch, items in questions.items():
+            if not isinstance(items, list):
+                continue
+            for index, question in enumerate(items):
+                if not isinstance(question, dict):
+                    continue
+                question_count += 1
+                question_id = question.get("id")
+                if isinstance(question_id, str):
+                    previous = question_ids.get(question_id)
+                    if previous is not None:
+                        diagnostics.append(Diagnostic(source, f"$.research_questions.{branch}[{index}].id", "duplicate_research_question", f"Research Question ID {question_id} is already used at {previous}"))
+                    else:
+                        question_ids[question_id] = f"{branch}[{index}]"
+                for origin in question.get("origin_refs", []):
+                    if not isinstance(origin, str) or origin not in available_origins:
+                        diagnostics.append(Diagnostic(source, f"$.research_questions.{branch}[{index}].origin_refs", "unresolved_origin_ref", f"Unknown Idea origin: {origin}"))
+                    else:
+                        used_origins.add(origin)
+
+    exceptions = research_contract.get("origin_exceptions", [])
+    exception_origins: set[str] = set()
+    if isinstance(exceptions, list):
+        for index, item in enumerate(exceptions):
+            if not isinstance(item, dict):
+                continue
+            origin = item.get("origin_ref")
+            if origin not in available_origins:
+                diagnostics.append(Diagnostic(source, f"$.origin_exceptions[{index}].origin_ref", "unresolved_origin_ref", f"Unknown Idea origin exception: {origin}"))
+            elif isinstance(origin, str):
+                exception_origins.add(origin)
+
+    required_origins = critical_assumptions | researchable_unknowns
+    missing_required = sorted(required_origins - used_origins - exception_origins)
+    if missing_required:
+        diagnostics.append(Diagnostic(source, "$.research_questions", "missing_origin_mapping", "Critical or researchable Idea origins are unmapped: " + ", ".join(missing_required)))
+
+    completion = idea_definition.get("shaping", {}).get("completion_outcome")
+    if completion == "PARTIAL_RESEARCHABLE" and question_count == 0:
+        diagnostics.append(Diagnostic(source, "$.research_questions", "partial_researchable_without_question", "PARTIAL_RESEARCHABLE requires at least one derived Research Question"))
     return diagnostics
 
 
@@ -472,28 +1255,231 @@ def _collect_ids(cases: list[dict[str, Any]]) -> tuple[set[str], set[str], set[s
     return source_ids, claim_ids, evidence_ids, decision_ids
 
 
-def resolve_repo_path(relative_path: str) -> Path:
+def resolve_repo_path(
+    relative_path: str,
+    *,
+    root: Path = ROOT,
+    allowed_root: str | None = None,
+    must_exist: bool = False,
+    reject_symlinks: bool = False,
+) -> Path:
     if not isinstance(relative_path, str) or not _is_safe_relative_path(relative_path):
         raise ValueError(f"Unsafe repository-relative path: {relative_path!r}")
-    resolved = (ROOT / relative_path).resolve()
+    candidate = root / relative_path
+    resolved = candidate.resolve()
     try:
-        resolved.relative_to(ROOT.resolve())
+        resolved.relative_to(root.resolve())
     except ValueError as exc:
         raise ValueError(f"Path escapes repository root: {relative_path}") from exc
+    if allowed_root is not None:
+        allowed = (root / allowed_root).resolve()
+        try:
+            resolved.relative_to(allowed)
+        except ValueError as exc:
+            raise ValueError(f"Path must stay within {allowed_root}: {relative_path}") from exc
+    if reject_symlinks and _contains_symlink(candidate, root):
+        raise ValueError(f"Symbolic links are not allowed for contract references: {relative_path}")
+    if must_exist and not resolved.is_file():
+        raise ValueError(f"Referenced contract file does not exist: {relative_path}")
     return resolved
+
+
+def _load_contract_document(path: Path, source: str) -> tuple[Any | None, list[Diagnostic]]:
+    try:
+        return load_document(path), []
+    except DuplicateKeyError as exc:
+        return None, [Diagnostic(source, "$", "duplicate_key", str(exc))]
+    except (OSError, ValueError, TypeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+        return None, [Diagnostic(source, "$", "contract_load", str(exc))]
+
+
+def skill_repository_diagnostics(
+    catalog: RepositoryCatalog,
+    schemas: dict[str, dict[str, Any]],
+    registry: Registry,
+    *,
+    contract_version: str = CONTRACT_VERSION,
+) -> tuple[list[Diagnostic], int, dict[str, dict[str, Any]], dict[str, set[str]]]:
+    diagnostics: list[Diagnostic] = []
+    checked = 0
+    documents: dict[str, dict[str, Any]] = {}
+    declared_ids: dict[str, str] = {}
+    output_types: dict[str, set[str]] = {}
+    for skill_id in sorted(REQUIRED_SKILL_IDS & catalog.skill_ids):
+        directory = catalog.root / "skills" / skill_id
+        yaml_path = directory / "skill.yaml"
+        yaml_source = yaml_path.relative_to(catalog.root).as_posix()
+        if yaml_path.is_file():
+            document, load_errors = _load_contract_document(yaml_path, yaml_source)
+            diagnostics.extend(load_errors)
+            if document is not None:
+                checked += 1
+                if not isinstance(document, dict):
+                    diagnostics.append(Diagnostic(yaml_source, "$", "contract_type", "Skill Contract must be an object"))
+                else:
+                    documents[skill_id] = document
+                    schema_errors = validate_instance(document, "skill.schema.json", yaml_source, schemas, registry)
+                    diagnostics.extend(schema_errors)
+                    if not schema_errors:
+                        diagnostics.extend(skill_contract_diagnostics(document, yaml_source, skill_id, catalog, schemas, contract_version=contract_version))
+                    public_id = document.get("skill", {}).get("id")
+                    if isinstance(public_id, str):
+                        previous = declared_ids.get(public_id)
+                        if previous is not None:
+                            diagnostics.append(Diagnostic(yaml_source, "$.skill.id", "duplicate_contract_id", f"Skill ID {public_id} is already declared by {previous}"))
+                        else:
+                            declared_ids[public_id] = yaml_source
+                    output_types[skill_id] = {
+                        output.get("artifact_type")
+                        for output in document.get("output_contracts", [])
+                        if isinstance(output, dict) and isinstance(output.get("artifact_type"), str)
+                    }
+
+        markdown_path = directory / "SKILL.md"
+        markdown_source = markdown_path.relative_to(catalog.root).as_posix()
+        if markdown_path.is_file():
+            try:
+                if markdown_path.stat().st_size > MAX_DOCUMENT_BYTES:
+                    raise ValueError(f"Document exceeds {MAX_DOCUMENT_BYTES} byte limit: {markdown_path}")
+                markdown = markdown_path.read_text(encoding="utf-8")
+            except (OSError, ValueError) as exc:
+                diagnostics.append(Diagnostic(markdown_source, "$", "contract_load", str(exc)))
+            else:
+                checked += 1
+                interaction_required = isinstance(documents.get(skill_id, {}).get("interaction"), dict)
+                diagnostics.extend(skill_markdown_diagnostics(markdown, markdown_source, skill_id, interaction_required=interaction_required))
+
+    diagnostics.extend(readiness_writer_diagnostics(documents))
+    return diagnostics, checked, documents, output_types
+
+
+def readiness_writer_diagnostics(documents: Mapping[str, dict[str, Any]]) -> list[Diagnostic]:
+    readiness_writers = sorted(
+        skill_id
+        for skill_id, document in documents.items()
+        if any(
+            isinstance(output, dict)
+            and isinstance(output.get("schema_ref"), str)
+            and output["schema_ref"].split("#", 1)[0] == READINESS_SCHEMA_REF
+            for output in document.get("output_contracts", [])
+        )
+    )
+    if readiness_writers != ["build-readiness-verifier"]:
+        return [Diagnostic("skills", "$", "readiness_writer", f"build-readiness-verifier must be the unique Readiness writer; found {readiness_writers}")]
+    return []
+
+
+def template_repository_diagnostics(
+    catalog: RepositoryCatalog,
+    *,
+    contract_version: str = CONTRACT_VERSION,
+) -> tuple[list[Diagnostic], int]:
+    diagnostics: list[Diagnostic] = []
+    checked = 0
+    for relative_path, artifact_type in REQUIRED_TEMPLATE_CONTRACTS.items():
+        path = catalog.root / relative_path
+        if not path.is_file():
+            continue
+        try:
+            if path.stat().st_size > MAX_DOCUMENT_BYTES:
+                raise ValueError(f"Document exceeds {MAX_DOCUMENT_BYTES} byte limit: {path}")
+            text = path.read_text(encoding="utf-8")
+        except (OSError, ValueError) as exc:
+            diagnostics.append(Diagnostic(relative_path, "$", "contract_load", str(exc)))
+            continue
+        checked += 1
+        diagnostics.extend(template_contract_diagnostics(text, relative_path, artifact_type, contract_version=contract_version))
+    return diagnostics, checked
+
+
+def subgraph_repository_diagnostics(
+    catalog: RepositoryCatalog,
+    schemas: dict[str, dict[str, Any]],
+    registry: Registry,
+    skill_output_types: Mapping[str, set[str]],
+    *,
+    contract_version: str = CONTRACT_VERSION,
+) -> tuple[list[Diagnostic], int]:
+    diagnostics: list[Diagnostic] = []
+    checked = 0
+    for subgraph_id in sorted(REQUIRED_SUBGRAPH_IDS & catalog.subgraph_ids):
+        path = catalog.root / "subgraphs" / f"{subgraph_id}.yaml"
+        source = path.relative_to(catalog.root).as_posix()
+        document, load_errors = _load_contract_document(path, source)
+        diagnostics.extend(load_errors)
+        if document is None:
+            continue
+        checked += 1
+        if not isinstance(document, dict):
+            diagnostics.append(Diagnostic(source, "$", "contract_type", "Subgraph Contract must be an object"))
+            continue
+        schema_errors = validate_instance(document, "subgraph.schema.json", source, schemas, registry)
+        diagnostics.extend(schema_errors)
+        if not schema_errors:
+            diagnostics.extend(subgraph_semantics(document, source, catalog, skill_output_types, contract_version=contract_version))
+    return diagnostics, checked
 
 
 def fixture_diagnostics(
     schemas: dict[str, dict[str, Any]],
     registry: Registry,
     workflow: dict[str, Any],
+    *,
+    bundle_root: Path = ROOT,
+    fixture_manifest_path: Path = FIXTURE_MANIFEST,
+    contract_version: str = CONTRACT_VERSION,
+    catalog: RepositoryCatalog | None = None,
 ) -> tuple[list[Diagnostic], int]:
-    manifest = load_document(FIXTURE_MANIFEST)
+    manifest = load_document(fixture_manifest_path)
     loaded_cases: list[dict[str, Any]] = []
     diagnostics: list[Diagnostic] = []
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("cases"), list):
+        return [Diagnostic(_display_path(fixture_manifest_path), "$", "fixture_manifest", "Fixture Manifest must contain a cases array")], 0
+    manifest_version = manifest.get("contract_version")
+    if manifest_version is not None and manifest_version != contract_version:
+        diagnostics.append(Diagnostic(_display_path(fixture_manifest_path), "$.contract_version", "contract_version", f"Fixture Manifest version must be {contract_version}"))
+    if contract_version == "0.2.0" and manifest.get("path_resolution") != "bundle_root_relative":
+        diagnostics.append(Diagnostic(_display_path(fixture_manifest_path), "$.path_resolution", "fixture_manifest", "v0.2 Fixture paths must be Bundle-root-relative"))
+
+    legacy_cases = manifest.get("legacy_cases", [])
+    if contract_version == "0.2.0" and not isinstance(legacy_cases, list):
+        diagnostics.append(Diagnostic(_display_path(fixture_manifest_path), "$.legacy_cases", "fixture_manifest", "v0.2 Fixture Manifest legacy_cases must be an array"))
+        legacy_cases = []
+    listed_paths = [
+        spec.get("path")
+        for spec in [*manifest["cases"], *legacy_cases]
+        if isinstance(spec, dict)
+    ]
+    duplicate_paths = sorted({path for path in listed_paths if isinstance(path, str) and listed_paths.count(path) > 1})
+    if duplicate_paths:
+        diagnostics.append(Diagnostic(_display_path(fixture_manifest_path), "$.cases", "duplicate_fixture", "Duplicate Fixture paths: " + ", ".join(duplicate_paths)))
+    fixture_root = bundle_root / ("fixtures/contracts" if contract_version == "0.1.0" else "fixtures")
+    actual_paths = {
+        path.relative_to(bundle_root).as_posix()
+        for category in ("valid", "invalid", "legacy")
+        for path in (fixture_root / category).glob("*")
+        if path.is_file()
+    }
+    listed_set = {path for path in listed_paths if isinstance(path, str)}
+    missing_from_manifest = sorted(actual_paths - listed_set)
+    missing_from_disk = sorted(listed_set - actual_paths)
+    if missing_from_manifest:
+        diagnostics.append(Diagnostic(_display_path(fixture_manifest_path), "$.cases", "unregistered_fixture", "Unregistered Fixture files: " + ", ".join(missing_from_manifest)))
+    if missing_from_disk:
+        diagnostics.append(Diagnostic(_display_path(fixture_manifest_path), "$.cases", "missing_fixture", "Fixture files missing from Bundle: " + ", ".join(missing_from_disk)))
+
     for spec in manifest.get("cases", []):
+        if not isinstance(spec, dict) or not isinstance(spec.get("path"), str):
+            diagnostics.append(Diagnostic(_display_path(fixture_manifest_path), "$.cases", "fixture_manifest", "Each Fixture case must declare a string path"))
+            continue
         try:
-            path = resolve_repo_path(spec["path"])
+            path = resolve_repo_path(
+                spec["path"],
+                root=bundle_root,
+                allowed_root="fixtures",
+                must_exist=True,
+                reject_symlinks=True,
+            )
         except ValueError as exc:
             diagnostics.append(Diagnostic(str(spec.get("path", "<missing>")), "$", "unsafe_fixture_path", str(exc)))
             continue
@@ -513,15 +1499,35 @@ def fixture_diagnostics(
         if not case_diagnostics:
             semantics = set(spec.get("semantics", []))
             if "workflow" in semantics:
-                case_diagnostics.extend(workflow_semantics(document, source))
+                case_diagnostics.extend(workflow_semantics(document, source, catalog, contract_version=contract_version))
             if "profile" in semantics:
-                case_diagnostics.extend(profile_semantics(document, source, workflow))
+                case_diagnostics.extend(profile_semantics(document, source, workflow, catalog, contract_version=contract_version))
             if "paths" in semantics:
                 case_diagnostics.extend(path_semantics(document, source))
             if "gate" in semantics:
                 case_diagnostics.extend(gate_semantics(document, source))
             if "references" in semantics:
                 case_diagnostics.extend(reference_integrity(document, source, source_ids, claim_ids, evidence_ids, decision_ids))
+            if "interaction" in semantics:
+                case_diagnostics.extend(interaction_semantics(document, source))
+            if "research_origins" in semantics:
+                idea_fixture = spec.get("idea_fixture")
+                if not isinstance(idea_fixture, str):
+                    case_diagnostics.append(Diagnostic(source, "$.idea_fixture", "fixture_manifest", "research_origins requires idea_fixture"))
+                else:
+                    try:
+                        idea_path = resolve_repo_path(
+                            idea_fixture,
+                            root=bundle_root,
+                            allowed_root="fixtures",
+                            must_exist=True,
+                            reject_symlinks=True,
+                        )
+                        idea_document = load_document(idea_path)
+                    except (OSError, ValueError, TypeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+                        case_diagnostics.append(Diagnostic(source, "$.idea_fixture", "fixture_load", str(exc)))
+                    else:
+                        case_diagnostics.extend(research_origin_diagnostics(idea_document, document, source))
 
         if spec.get("expected_valid", False):
             diagnostics.extend(case_diagnostics)
@@ -536,33 +1542,76 @@ def fixture_diagnostics(
 
 
 def validate_repository() -> tuple[list[Diagnostic], int]:
+    """Validate the complete immutable root v0.1 Contract Bundle."""
+    catalog = build_repository_catalog(ROOT)
     schemas, registry = load_schemas()
-    diagnostics = schema_diagnostics(schemas)
+    diagnostics = repository_inventory_diagnostics(catalog)
+    diagnostics.extend(schema_diagnostics(schemas))
     checked = len(schemas)
+
+    skill_errors, skill_count, _, skill_output_types = skill_repository_diagnostics(
+        catalog,
+        schemas,
+        registry,
+    )
+    diagnostics.extend(skill_errors)
+    checked += skill_count
+
+    template_errors, template_count = template_repository_diagnostics(catalog)
+    diagnostics.extend(template_errors)
+    checked += template_count
+
+    subgraph_errors, subgraph_count = subgraph_repository_diagnostics(
+        catalog,
+        schemas,
+        registry,
+        skill_output_types,
+    )
+    diagnostics.extend(subgraph_errors)
+    checked += subgraph_count
 
     workflow_path = ROOT / "workflow.yaml"
     workflow = load_document(workflow_path)
     workflow_source = _display_path(workflow_path)
-    workflow_errors = validate_instance(workflow, "workflow.schema.json", workflow_source, schemas, registry)
+    workflow_errors = validate_instance(
+        workflow,
+        "workflow.schema.json",
+        workflow_source,
+        schemas,
+        registry,
+    )
     diagnostics.extend(workflow_errors)
     if not workflow_errors:
-        diagnostics.extend(workflow_semantics(workflow, workflow_source))
+        diagnostics.extend(workflow_semantics(workflow, workflow_source, catalog))
     checked += 1
 
     for profile_path in sorted(PROFILE_DIR.glob("*.yaml")):
         profile = load_document(profile_path)
         source = _display_path(profile_path)
-        profile_errors = validate_instance(profile, "profile.schema.json", source, schemas, registry)
+        profile_errors = validate_instance(
+            profile,
+            "profile.schema.json",
+            source,
+            schemas,
+            registry,
+        )
         diagnostics.extend(profile_errors)
         if not profile_errors:
-            diagnostics.extend(profile_semantics(profile, source, workflow))
+            diagnostics.extend(profile_semantics(profile, source, workflow, catalog))
         checked += 1
 
-    fixture_errors, fixture_count = fixture_diagnostics(schemas, registry, workflow)
+    fixture_errors, fixture_count = fixture_diagnostics(
+        schemas,
+        registry,
+        workflow,
+        catalog=catalog,
+    )
     diagnostics.extend(fixture_errors)
     checked += fixture_count
-    return sorted(diagnostics, key=lambda item: (item.source, item.path, item.rule, item.message)), checked
-
+    return sorted(
+        diagnostics,
+        key=lambda item: (item.source, item.path, item.rule, item.message),
+    ), checked
 
 def main() -> int:
     try:

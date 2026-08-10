@@ -664,6 +664,12 @@ reads:
 writes:
   - artifacts/02-research/competitors/candidates.json
 
+output_contracts:
+  - artifact_type: competitor_candidates
+    write: artifacts/02-research/competitors/candidates.json
+    schema_ref: schemas/competitor.schema.json#/$defs/competitor_candidates
+    template_ref: null
+
 evidence:
   required: true
   provenance_required: true
@@ -693,6 +699,8 @@ completion:
 on_failure:
   - emit_research_gap
 ```
+
+`output_contracts` 是所有 v0.1 `skill.yaml` 的必填数组。每项必须声明 `artifact_type`、`write` 和支持可选 JSON Pointer 的仓库内 `schema_ref`；`template_ref` 可以为 `null`，或指向 `templates/*.md`。`output_contracts[*].write` 去重后的集合必须与顶层 `writes` 完全一致，避免出现未声明写入或没有输出契约约束的写路径。Template 只约束 Markdown 表达层，不替代结构化 Artifact Schema。
 
 ---
 
@@ -758,6 +766,7 @@ product-discovery/
 │   ├── competitor-normalizer/
 │   ├── competitor-analysis/
 │   ├── competitor-visualization/
+│   ├── competitor-verifier/
 │   ├── user-evidence/
 │   ├── market-landscape/
 │   ├── oss-tech-landscape/
@@ -776,6 +785,7 @@ product-discovery/
 ├── schemas/
 │   ├── common.schema.json
 │   ├── workflow.schema.json
+│   ├── subgraph.schema.json
 │   ├── artifact.schema.json
 │   ├── idea.schema.json
 │   ├── source.schema.json
@@ -829,6 +839,19 @@ product-discovery/
     ├── 06-feasibility/
     └── 07-prd/
 ```
+
+五个 v0.1 Markdown Template 必须以可安全解析的 YAML front matter 开头：
+
+```yaml
+---
+template:
+  id: competitor-report
+  version: 0.1.0
+  artifact_type: competitor_report
+---
+```
+
+`template.id` 必须等于文件名去掉 `.md` 后的 stem，`version` 固定为 `0.1.0`。规范映射为：`competitor-report.md → competitor_report`、`synthesis.md → research_synthesis`、`product-definition.md → product_definition`、`feasibility.md → feasibility_review`、`prd.md → prd`。Skill 通过 `output_contracts[*].template_ref` 引用 Template；Template 只负责 Markdown 结构，不替代或放宽同一输出的 `schema_ref`。
 
 ---
 
@@ -1113,43 +1136,60 @@ Source Tier 是 claim-specific 的质量提示，不是全局绝对排名。例�
 
 顶层 `competitor` 是 `kind: subgraph`，绑定 `subgraphs/competitor-research.yaml`。Orchestrator 将 Subgraph 视为一个顶层依赖单元，但必须持久化其内部 Node、Attempt、Artifact、Verification 和 Retry 状态。
 
+`subgraphs/competitor-research.yaml` 必须通过 `schemas/subgraph.schema.json`。v0.1 Subgraph 的根形状固定为：
+
+```yaml
+subgraph:
+  id: competitor-research
+  version: 0.1.0
+  schema_version: 0.1.0
+
+inputs: []
+
+output_contracts:
+  - artifact_type: competitor_report
+    producer: visualization
+
+nodes: {}
+```
+
+顶层只允许 `subgraph`、`inputs`、`output_contracts` 和 `nodes`。每个输出项必须声明 `artifact_type` 和存在于 `nodes` 中的 `producer`；内部 Node 复用 `workflow.schema.json#/$defs/node` 的 kind/implementation 形状，并额外接受 Subgraph DAG、Skill 引用和输出 Producer 的跨文件语义检查。
+
+内部固定实现映射为：`discovery → competitor-discovery`、`candidate_ranking → competitor-ranking`、`deep_dive → competitor-deep-dive`、`normalizer → competitor-normalizer`、四个 `*_analysis → competitor-analysis`、`visualization → competitor-visualization`、`competitor_verifier → competitor-verifier`。`competitor_verifier` 是 required、唯一终点的内部 `kind: verifier` 节点；它不新增顶层 Core Workflow Node。`competitor-verifier` 因此是目录蓝图中的第 23 个 Standard Skill Contract。
+
+Subgraph 的 `competitor_verification` 输出必须由 `competitor_verifier` 产生；对应 Skill 的 `output_contracts` 必须引用 `schemas/verification.schema.json#/$defs/competitor_verification`。该输出契约负责要求内部 `retry_targets` 并将 `return_to` 固定为 Subgraph Node ID `competitor_verifier`，避免把 Retry/Return 控制字段误放进通用 Subgraph Node Shape。
+
 ```text
-competitor-discovery
-        ↓
-candidate-ranking
-        ↓
- ┌──────┼──────┬──────┐
- ↓      ↓      ↓      ↓
-deep   deep   deep   deep
-A      B      C      D
- └──────┼──────┴──────┘
-        ↓
-competitor-normalizer
-        ↓
-competitor-dataset
-        ↓
- ┌────────────┬────────────┬────────────┬────────────┐
- ↓            ↓            ↓            ↓
-feature     traction      review       pricing
-analysis    analysis      analysis     analysis
- └────────────┴──────┬─────┴────────────┘
-                     ↓
-          competitor-visualization
-                     ↓
-competitor-verifier
-          ↙         ↓          ↘
-        FAIL      PARTIAL      PASS
-         ↓          ↓           ↓
- targeted retry  propagate    report
+discovery
+    ↓
+candidate_ranking
+    ↓
+deep_dive
+    ↓
+normalizer
+    ↓
+ ┌──────────────┬────────────────┬─────────────┬────────────────┐
+ ↓              ↓                ↓             ↓
+feature_      traction_        review_       pricing_
+analysis      analysis         analysis      analysis
+ └──────────────┴────────┬───────┴─────────────┘
+                         ↓
+                   visualization
+                         ↓
+                competitor_verifier
+                ↙        ↓        ↘
+              FAIL    PARTIAL    PASS
+               ↓         ↓         ↓
+       targeted retry  propagate  report
 ```
 
 Subgraph Contract：
 
 - 输入：Idea Definition、Research Contract、Profile 与 Source Index；
 - 输出：candidate set、ranking、每个入选竞品的 Deep Dive、normalized dataset、analysis、Profile-required visualizations、competitor report 与 verification result；
-- `candidate-ranking` 必须保存 selection methodology 与被排除候选的理由；
+- `candidate_ranking` 必须保存 selection methodology 与被排除候选的理由；
 - Deep Dive 使用 fan-out / fan-in，并受 `max_parallel` 约束；
-- Verifier 的 gap 必须包含内部 `retry_targets` 和 `return_to: competitor-verifier`；
+- Verifier 的 gap 必须包含内部 `retry_targets` 和 `return_to: competitor_verifier`；
 - 顶层 Subgraph 只有在内部 required 节点结束后才能产生 `PASS | PARTIAL | FAIL`。
 
 ---

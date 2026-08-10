@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Research Verification Contract",
+  "title": "Verification Contracts",
   "$defs": {
     "verified_section": {
       "type": "object",
@@ -20,12 +20,8 @@
       },
       "additionalProperties": false
     },
-    "section": {"oneOf": [{"$ref": "#/$defs/verified_section"}, {"$ref": "#/$defs/skipped_section"}]}
-  },
-  "type": "object",
-  "required": ["verification", "sections"],
-  "properties": {
-    "verification": {
+    "section": {"oneOf": [{"$ref": "#/$defs/verified_section"}, {"$ref": "#/$defs/skipped_section"}]},
+    "verification_summary": {
       "type": "object",
       "required": ["overall", "critical_issues", "non_critical_issues"],
       "properties": {
@@ -35,7 +31,7 @@
       },
       "additionalProperties": false
     },
-    "sections": {
+    "research_sections": {
       "type": "object",
       "required": ["competitor", "users", "market", "technology"],
       "properties": {
@@ -45,7 +41,103 @@
         "technology": {"$ref": "#/$defs/section"}
       },
       "additionalProperties": false
+    },
+    "legacy_research_verification": {
+      "type": "object",
+      "required": ["verification", "sections"],
+      "properties": {
+        "verification": {"$ref": "#/$defs/verification_summary"},
+        "sections": {"$ref": "#/$defs/research_sections"}
+      },
+      "additionalProperties": false
+    },
+    "research_verification": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "verification", "sections"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "research_verification"}}},
+            "verification": {"$ref": "#/$defs/verification_summary"},
+            "sections": {"$ref": "#/$defs/research_sections"}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "competitor_issue": {
+      "type": "object",
+      "required": ["code", "critical", "retry_targets", "return_to"],
+      "properties": {
+        "code": {"type": "string", "minLength": 1},
+        "message": {"type": ["string", "null"]},
+        "critical": {"type": "boolean"},
+        "evidence_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/evidence_id"}},
+        "retry_targets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/machine_id"}},
+        "return_to": {"const": "competitor_verifier"},
+        "details": {"type": "object", "additionalProperties": true}
+      },
+      "additionalProperties": false
+    },
+    "competitor_verification_summary": {
+      "type": "object",
+      "required": ["overall", "issues"],
+      "properties": {
+        "overall": {"$ref": "common.schema.json#/$defs/verification_result"},
+        "issues": {"type": "array", "items": {"$ref": "#/$defs/competitor_issue"}}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"overall": {"const": "PASS"}}, "required": ["overall"]},
+          "then": {"properties": {"issues": {"maxItems": 0}}},
+          "else": {"properties": {"issues": {"minItems": 1}}}
+        }
+      ],
+      "additionalProperties": false
+    },
+    "competitor_verification": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "verification"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "competitor_verification"}}},
+            "verification": {"$ref": "#/$defs/competitor_verification_summary"}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "prd_consistency_verification": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "verification"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "prd_consistency_verification"}}},
+            "verification": {
+              "type": "object",
+              "required": ["result", "checks", "issues"],
+              "properties": {
+                "result": {"enum": ["PASS", "FAIL"]},
+                "checks": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/machine_id"}},
+                "issues": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/issue"}}
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
     }
   },
-  "additionalProperties": false
+  "oneOf": [
+    {"$ref": "#/$defs/legacy_research_verification"},
+    {"$ref": "#/$defs/research_verification"},
+    {"$ref": "#/$defs/competitor_verification"},
+    {"$ref": "#/$defs/prd_consistency_verification"}
+  ]
 }

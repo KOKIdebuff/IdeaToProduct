@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Chart Bundle Artifact Contract",
+  "$defs": {
+    "chart_bundle": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "chart", "data_ref", "chart_spec_ref", "svg_ref", "png_ref", "insight_ref", "observation", "interpretation", "product_implication", "confidence", "evidence_ids", "limitations"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "chart_bundle"}}},
+            "chart": {
+              "type": "object",
+              "required": ["id", "type"],
+              "properties": {
+                "id": {"$ref": "common.schema.json#/$defs/machine_id"},
+                "type": {"$ref": "common.schema.json#/$defs/machine_id"}
+              },
+              "additionalProperties": false
+            },
+            "data_ref": {"$ref": "common.schema.json#/$defs/relative_path"},
+            "chart_spec_ref": {"$ref": "common.schema.json#/$defs/relative_path"},
+            "svg_ref": {"$ref": "common.schema.json#/$defs/relative_path"},
+            "png_ref": {"$ref": "common.schema.json#/$defs/relative_path"},
+            "insight_ref": {"$ref": "common.schema.json#/$defs/relative_path"},
+            "observation": {"type": "string", "minLength": 1},
+            "interpretation": {"type": "string", "minLength": 1},
+            "product_implication": {"type": "string", "minLength": 1},
+            "confidence": {"enum": ["HIGH", "MEDIUM", "LOW", "INSUFFICIENT"]},
+            "evidence_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/evidence_id"}},
+            "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}}
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "$ref": "#/$defs/chart_bundle"
+}

@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 
-from scripts.validate_contracts import validate_instance, workflow_semantics
+from scripts.validate_contracts import build_repository_catalog, validate_instance, workflow_semantics
 
 
 def rules(diagnostics):
@@ -85,8 +85,51 @@ def test_core_nodes_and_kind_contract_are_enforced(contract_env):
     assert "kind_contract" in rules(workflow_semantics(wrong_kind, "workflow.yaml"))
 
 
+def test_core_node_clean_replacement_is_rejected(contract_env):
+    _, _, workflow = contract_env
+    replaced = deepcopy(workflow)
+    replaced["nodes"]["idea_v2"] = replaced["nodes"].pop("idea")
+    replaced["nodes"]["contract"]["depends_on"] = ["idea_v2"]
+
+    diagnostics = workflow_semantics(replaced, "workflow.yaml")
+    assert [(item.path, item.rule, item.message) for item in diagnostics] == [
+        ("$.nodes", "missing_core_nodes", "Missing core nodes: idea")
+    ]
+
+
+def test_core_node_kind_and_implementation_drift_are_rejected(contract_env):
+    _, _, workflow = contract_env
+    wrong_kind = deepcopy(workflow)
+    wrong_kind["nodes"]["idea"]["kind"] = "subgraph"
+    wrong_kind["nodes"]["idea"]["subgraph"] = wrong_kind["nodes"]["idea"].pop("skill")
+    kind_diagnostics = workflow_semantics(wrong_kind, "workflow.yaml")
+    assert [(item.path, item.rule) for item in kind_diagnostics] == [
+        ("$.nodes.idea.kind", "core_node_mapping")
+    ]
+
+    wrong_implementation = deepcopy(workflow)
+    wrong_implementation["nodes"]["idea"]["skill"] = "idea-intake-v2"
+    implementation_diagnostics = workflow_semantics(wrong_implementation, "workflow.yaml")
+    assert [(item.path, item.rule) for item in implementation_diagnostics] == [
+        ("$.nodes.idea.skill", "core_node_mapping")
+    ]
+
+
 def test_external_input_schema_reference_must_exist(contract_env):
     _, _, workflow = contract_env
     mutated = deepcopy(workflow)
     mutated["nodes"]["proof_result"]["on_submit"]["validate"] = "missing.schema.json"
     assert "missing_schema" in rules(workflow_semantics(mutated, "workflow.yaml"))
+
+
+def test_workflow_skill_and_subgraph_references_must_exist(contract_env):
+    _, _, workflow = contract_env
+    catalog = build_repository_catalog()
+
+    missing_skill = deepcopy(workflow)
+    missing_skill["nodes"]["idea"]["skill"] = "missing-skill"
+    assert "missing_skill_reference" in rules(workflow_semantics(missing_skill, "workflow.yaml", catalog))
+
+    missing_subgraph = deepcopy(workflow)
+    missing_subgraph["nodes"]["competitor"]["subgraph"] = "missing-subgraph"
+    assert "missing_subgraph_reference" in rules(workflow_semantics(missing_subgraph, "workflow.yaml", catalog))

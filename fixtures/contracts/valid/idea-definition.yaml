@@ -1,0 +1,30 @@
+artifact:
+  id: ART-IDEA-002
+  type: idea_definition
+  schema_version: 0.1.0
+  version: 1
+  produced_by:
+    skill: idea-intake
+    attempt: ATT-00002
+  created_at: "2026-08-08T04:00:00Z"
+  supersedes: null
+  status: active
+idea:
+  original: Build an evidence-grounded product discovery workflow.
+problem:
+  statement: Product decisions are difficult to audit and reproduce.
+target_users:
+  primary: [product builders]
+  secondary: [research reviewers]
+proposed_solution:
+  - Persist contracts and evidence as versioned artifacts.
+assumptions:
+  - id: auditability_need
+    claim: Product builders need auditable discovery decisions.
+    status: unvalidated
+unknowns:
+  - Which evidence thresholds are sufficient?
+non_goals:
+  - Implement a production runtime.
+confidence:
+  overall: low

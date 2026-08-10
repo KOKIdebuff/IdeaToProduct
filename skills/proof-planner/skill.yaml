@@ -1,0 +1,34 @@
+skill:
+  id: proof-planner
+  version: 0.1.0
+  type: planner
+inputs:
+  required: [feasibility_review]
+  optional: [product_definition]
+reads:
+  - artifacts/06-feasibility/feasibility.md
+  - artifacts/05-product/product-definition.md
+writes:
+  - artifacts/06-feasibility/proof-plan.yaml
+output_contracts:
+  - artifact_type: proof_plan
+    write: artifacts/06-feasibility/proof-plan.yaml
+    schema_ref: schemas/research.schema.json#/$defs/proof_plan
+    template_ref: null
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/06-feasibility/proof-plan.yaml
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 0
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [proof_plan]
+  pass_and_fail_criteria_required: true
+on_failure: []

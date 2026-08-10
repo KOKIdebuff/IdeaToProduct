@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from scripts.validate_contracts import ROOT, load_document, profile_semantics
+from scripts.validate_contracts import ROOT, build_repository_catalog, load_document, profile_semantics
 
 
 def rules(diagnostics):
@@ -86,3 +86,19 @@ def test_profile_added_gate_requires_rationale(contract_env):
         "config": {},
     }]
     assert "extension_gate_rationale" in rules(profile_semantics(mutated, "developer-tool.yaml", workflow))
+
+
+def test_profile_extension_skill_reference_must_exist(contract_env):
+    _, _, workflow = contract_env
+    profile = load_document(ROOT / "profiles" / "developer-tool.yaml")
+    mutated = deepcopy(profile)
+    mutated["extensions"] = [{
+        "id": "missing_skill_extension",
+        "node": {"kind": "skill", "skill": "missing-skill"},
+        "insert_after": "gate_research",
+        "before": "research_verifier",
+        "required": True,
+        "config": {},
+    }]
+    diagnostics = profile_semantics(mutated, "developer-tool.yaml", workflow, build_repository_catalog())
+    assert "missing_skill_reference" in rules(diagnostics)
