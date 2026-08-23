@@ -2,5 +2,15 @@
 __pycache__/
 .pytest_cache/
 *.pyc
+*.egg-info/
+/build/
+# Keep root-level working documents local. Contract and template Markdown under
+# subdirectories remains part of the repository's validated implementation.
+/*.md
+!/README.md
+!/PRD_v0.1.md
+!/PRD_v0.2.md
+!/SPEC_v0.1.md
+!/SPEC_v0.2.md
 /progress.md
 /lessons.md

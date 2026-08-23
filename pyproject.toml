@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools==83.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "product-discovery-skillgraph-runtime"
+version = "0.2.0"
+description = "Deterministic Runtime Core for Product Discovery SkillGraph"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "jsonschema[format]==4.26.0",
+  "PyYAML==6.0.3",
+]
+
+[project.scripts]
+skillgraph-runtime = "skillgraph_runtime.cli:main"
+
+[tool.setuptools]
+packages = ["skillgraph_runtime", "skillgraph_runtime._validation"]
+package-dir = {"skillgraph_runtime" = "src/skillgraph_runtime", "skillgraph_runtime._validation" = "scripts"}

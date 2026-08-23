@@ -20,7 +20,7 @@ from jsonschema.exceptions import SchemaError
 from referencing import Registry, Resource
 
 try:
-    from scripts.contract_bundles import (
+    from skillgraph_runtime.bundles import (
         BundleContext,
         ContractResolutionError,
         VersionRegistry,
@@ -30,7 +30,7 @@ try:
         resolve_contract_bundle,
         verify_integrity,
     )
-except ModuleNotFoundError:  # direct ``python scripts/validate_contracts.py`` execution
+except ModuleNotFoundError:  # direct ``python scripts/validate_contracts.py`` before editable install
     from contract_bundles import (  # type: ignore[no-redef]
         BundleContext,
         ContractResolutionError,
@@ -1626,7 +1626,7 @@ def legacy_fixture_diagnostics(
         decision = evaluate_legacy_input_ref(
             reference,
             spec.get("target_contract_version"),
-            repository_root=ROOT,
+            repository_root=version_registry.path.parents[1],
             registry=version_registry,
         )
         expected_accepted = spec.get("expected_accepted")
@@ -1641,9 +1641,14 @@ def legacy_fixture_diagnostics(
     return diagnostics, checked
 
 
-def _scope_bundle_diagnostics(diagnostics: Iterable[Diagnostic], context: BundleContext) -> list[Diagnostic]:
+def _scope_bundle_diagnostics(
+    diagnostics: Iterable[Diagnostic],
+    context: BundleContext,
+    *,
+    repository_root: Path = ROOT,
+) -> list[Diagnostic]:
     try:
-        prefix = context.bundle.root.resolve().relative_to(ROOT.resolve()).as_posix()
+        prefix = context.bundle.root.resolve().relative_to(repository_root.resolve()).as_posix()
     except ValueError:
         prefix = context.bundle.root.resolve().as_posix()
     if prefix in {"", "."}:
@@ -1728,7 +1733,8 @@ def validate_bundle(
         diagnostics.extend(legacy_errors)
         checked += legacy_count
 
-    scoped = _scope_bundle_diagnostics(diagnostics, context)
+    scope_root = version_registry.path.parents[1] if version_registry is not None else ROOT
+    scoped = _scope_bundle_diagnostics(diagnostics, context, repository_root=scope_root)
     return sorted(scoped, key=lambda item: (item.source, item.path, item.rule, item.message)), checked
 
 
