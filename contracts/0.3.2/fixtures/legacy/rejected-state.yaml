@@ -1,0 +1,5 @@
+source_contract_version: 0.1.0
+ref_type: state
+ref: fixtures/contracts/valid/workflow-state.yaml
+content_hash: sha256:c19e04cd53b75b13df52f470dd51854589636cbbfed4350cb545da470e8f4a34
+purpose: seed_current_research

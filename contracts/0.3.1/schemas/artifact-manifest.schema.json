@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Current Artifact Manifest Contract",
+  "type": "object",
+  "required": ["schema_version", "run_id", "state_version", "updated_at", "last_event_offset", "current_artifacts"],
+  "properties": {
+    "schema_version": {"$ref": "common.schema.json#/$defs/schema_version"},
+    "run_id": {"$ref": "common.schema.json#/$defs/run_id"},
+    "state_version": {"type": "integer", "minimum": 0},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "last_event_offset": {"type": "integer", "minimum": 0},
+    "current_artifacts": {
+      "type": "object",
+      "propertyNames": {
+        "allOf": [
+          {"$ref": "common.schema.json#/$defs/machine_id"},
+          {"not": {"enum": ["interaction_checkpoint", "legacy_input_ref"]}}
+        ]
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["artifact_ref", "content_hash"],
+        "properties": {
+          "artifact_ref": {"type": "string", "pattern": "^ART-[A-Za-z0-9_-]+@[1-9][0-9]*$"},
+          "content_hash": {"$ref": "common.schema.json#/$defs/sha256"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

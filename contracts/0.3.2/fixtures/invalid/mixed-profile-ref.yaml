@@ -1,0 +1,54 @@
+artifact:
+  id: ART-CONTRACT-001
+  type: research_contract
+  schema_version: 0.3.2
+  version: 1
+  produced_by:
+    skill: research-contract
+    attempt: ATT-00004
+  created_at: "2026-08-08T04:30:00Z"
+  supersedes: null
+  status: active
+profile_ref: developer_tool@0.1.0
+effective_research:
+  competitor: required
+  users: required
+  market: required
+  technology: required
+research_questions:
+  competitors:
+    - id: RQ-COMP-01
+      question: Which alternatives solve the same workflow?
+      origin_refs: [ASM-001, "research_seeds.competitor_questions[0]"]
+  users:
+    - id: RQ-USER-01
+      question: Which user pains and evidence thresholds matter?
+      origin_refs: [UNK-001, "research_seeds.user_questions[0]"]
+  market:
+    - id: RQ-MARKET-01
+      question: Why is the category timely?
+      origin_refs: ["research_seeds.market_questions[0]"]
+  technology:
+    - id: RQ-TECH-01
+      question: Which OSS components are reusable?
+      origin_refs: ["research_seeds.technology_questions[0]"]
+origin_exceptions: []
+required_evidence:
+  competitor_count: 5
+  primary_sources: 8
+  user_evidence_items: 15
+  oss_projects: 5
+required_source_types: [official_documentation, user_interview]
+required_visualizations: [feature_matrix, positioning_map, momentum_comparison, oss_activity]
+profile_adjustments: []
+run_policy:
+  max_parallel: 4
+  automated_attempt_timeout_minutes: 20
+  max_sources_per_research_node: 50
+  max_retries_per_node: 2
+  max_global_research_cycles: 2
+  automated_run_timeout_minutes: 120
+  host_token_limit: null
+  host_cost_limit: null
+stop_conditions:
+  max_research_loops: 2

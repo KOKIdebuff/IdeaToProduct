@@ -1,0 +1,15 @@
+executor_result:
+  schema_version: 0.3.2
+  run_id: run_20260808_001
+  node_id: competitor
+  attempt_id: ATT-00017
+  status: COMPLETED
+  output_artifact_refs: [ART-COMPETITOR-001@1]
+  source_upserts: []
+  usage:
+    automated_duration_seconds: 12.5
+    source_count: 0
+    input_tokens: 100
+    output_tokens: 200
+    estimated_cost: 0.01
+  error: null

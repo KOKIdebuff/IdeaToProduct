@@ -1,0 +1,37 @@
+skill:
+  id: competitor-scoring
+  version: 0.3.1
+  type: analysis
+inputs:
+  required: [report_projection, product_profile, scoring_rubric]
+  optional: []
+reads:
+  - artifacts/02-research/competitors/report-projection.json
+  - profiles/
+  - rubrics/
+writes:
+  - artifacts/02-research/competitors/scoring/judgments/
+  - artifacts/02-research/competitors/scoring/scores/
+output_contracts:
+  - artifact_type: dimension_judgment
+    write: artifacts/02-research/competitors/scoring/judgments/
+    schema_ref: schemas/competitor.schema.json#/$defs/dimension_judgment
+    template_ref: null
+  - artifact_type: transparent_score
+    write: artifacts/02-research/competitors/scoring/scores/
+    schema_ref: schemas/competitor.schema.json#/$defs/transparent_score
+    template_ref: null
+evidence: {required: true, provenance_required: true}
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/02-research/competitors/scoring/judgments/
+    - artifacts/02-research/competitors/scoring/scores/
+  secrets: forbidden
+budget: {timeout_minutes: 20, max_sources: 0}
+executor: {allowed_adapter_types: [fixture, manual, host_agent]}
+completion:
+  required_outputs: [dimension_judgment]
+  aggregator_owner: runtime
+  freeform_total_forbidden: true
+on_failure: [emit_research_gap]

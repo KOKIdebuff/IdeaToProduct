@@ -1,0 +1,25 @@
+artifact:
+  id: ART-COMPETITOR-001
+  type: competitor_dataset
+  schema_version: 0.3.2
+  version: 1
+  produced_by:
+    skill: competitor-normalizer
+    attempt: ATT-00010
+  created_at: "2026-08-08T05:00:00Z"
+  supersedes: null
+  status: active
+schema_version: 0.3.2
+generated_at: "2026-08-08T05:00:00Z"
+competitors:
+  - id: cmp_001
+    name: Example Product
+    category: direct
+    metrics:
+      feature_coverage:
+        value: 0.78
+        source: derived
+      star_growth_30d:
+        value: 0.21
+        observed_at: "2026-08-08T05:00:00Z"
+        source_ids: [SRC-002, SRC-003]

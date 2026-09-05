@@ -1,0 +1,1 @@
+svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50" role="img"><title>Unsafe</title><desc>Unsafe script.</desc><script>alert(1)</script></svg>'

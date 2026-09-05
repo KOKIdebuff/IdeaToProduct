@@ -1,0 +1,35 @@
+skill:
+  id: market-landscape
+  version: 0.3.1
+  type: research
+inputs:
+  required: [idea_definition, research_contract]
+  optional: [source_index]
+reads:
+  - artifacts/00-intake/idea-definition.yaml
+  - artifacts/01-contract/research-contract.yaml
+  - artifacts/02-research/source-index.json
+writes:
+  - artifacts/02-research/market-landscape.yaml
+output_contracts:
+  - artifact_type: market_landscape
+    write: artifacts/02-research/market-landscape.yaml
+    schema_ref: schemas/research.schema.json#/$defs/market_landscape
+    template_ref: null
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: read_only
+  workspace_write:
+    - artifacts/02-research/market-landscape.yaml
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 50
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [market_landscape]
+  contract_questions_covered: true
+on_failure: [emit_research_gap]

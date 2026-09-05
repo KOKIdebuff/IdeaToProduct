@@ -1,0 +1,24 @@
+executor_request:
+  schema_version: 0.3.1
+  run_id: run_20260809_001
+  node_id: idea
+  attempt_id: ATT-IDEA-001
+  adapter_type: host_agent
+  skill_ref: idea-intake@0.3.1
+  input_artifact_refs: []
+  profile_ref: developer_tool@0.3.1
+  research_contract_ref: null
+  interaction_resume:
+    checkpoint_ref: runtime/attempts/ATT-IDEA-001/checkpoints/CP-0002.json
+    question_id: IQ-001
+    selected_option_id: A
+    freeform_text: 先聚焦应届毕业生，但优先解决申请流程失控。
+  permissions:
+    external_access: none
+    workspace_write_paths: [artifacts/00-intake/]
+    secrets: forbidden
+  budget:
+    timeout_minutes: 20
+    max_sources: 0
+    token_limit: null
+    cost_limit: null

@@ -1,0 +1,35 @@
+skill:
+  id: competitor-deep-dive
+  version: 0.3.1
+  type: research
+inputs:
+  required: [competitor_ranking, research_contract]
+  optional: [source_index]
+reads:
+  - artifacts/01-contract/research-contract.yaml
+  - artifacts/02-research/competitors/ranking.yaml
+  - artifacts/02-research/source-index.json
+writes:
+  - artifacts/02-research/competitors/deep-dives/
+output_contracts:
+  - artifact_type: competitor_deep_dive
+    write: artifacts/02-research/competitors/deep-dives/
+    schema_ref: schemas/competitor.schema.json#/$defs/competitor_deep_dive
+    template_ref: null
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: read_only
+  workspace_write:
+    - artifacts/02-research/competitors/deep-dives/
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 50
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [competitor_deep_dive]
+  one_artifact_per_selected_competitor: true
+on_failure: [emit_research_gap]

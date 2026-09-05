@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="template-id" content="competitor-report">
+  <meta name="template-version" content="0.3.2">
+  <meta name="artifact-type" content="competitor_report">
+  <title>Competitor Research Report</title>
+  <style>
+    body { color: #18212f; font-family: system-ui, sans-serif; line-height: 1.5; margin: 2rem auto; max-width: 72rem; padding: 0 1rem; }
+    figure { margin: 1.5rem 0; }
+    img { display: block; height: auto; max-width: 100%; }
+    .citation-group { display: inline; position: relative; }
+    .citation-badge { background: #eef3ff; border: 1px solid #9fb5e8; border-radius: 999px; color: #17356d; display: inline-block; font-size: .8rem; margin-inline-start: .35rem; padding: .05rem .45rem; text-decoration: none; }
+    .source-preview { background: #fff; border: 1px solid #b8c2d1; border-radius: .5rem; box-shadow: 0 .4rem 1.2rem rgb(24 33 47 / 18%); display: none; inset-inline-start: 0; max-width: 24rem; padding: .65rem; position: absolute; top: 1.5rem; z-index: 2; }
+    .citation-group:hover .source-preview, .citation-group:focus-within .source-preview { display: block; }
+    .source-favicon { block-size: 1rem; inline-size: 1rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Competitor Research Report</h1>
+
+    <section id="scope-and-methodology">
+      <h2>Scope and Methodology</h2>
+      <!-- Describe approved research scope, source strategy, selection method, and analysis limits. -->
+    </section>
+
+    <section id="candidate-selection">
+      <h2>Candidate Selection</h2>
+      <!-- List selected and excluded candidates with explicit reasons and source references. -->
+    </section>
+
+    <section id="competitor-deep-dives">
+      <h2>Competitor Deep Dives</h2>
+      <!-- Summarize evidence-backed positioning, workflow, features, business model, traction, feedback, strengths, and weaknesses. -->
+    </section>
+
+    <section id="normalized-dataset">
+      <h2>Dataset</h2>
+      <!-- Reference the normalized dataset; preserve null and label estimates. -->
+    </section>
+
+    <section id="scoring-methodology">
+      <h2>Scoring Methodology</h2>
+      <p data-scoring-status="NOT_PERFORMED">Transparent scoring has not produced a valid Score Artifact for this Run.</p>
+      <!-- Record metrics, weights, normalization, missing-value handling, and minimum-data rules. -->
+    </section>
+
+    <section id="analysis">
+      <h2>Analysis</h2>
+      <!-- Present feature, traction, review, and pricing findings without expanding beyond available evidence. -->
+    </section>
+
+    <section id="required-visualizations">
+      <h2>Chart Bundles</h2>
+      <!-- List each chart bundle's data, chart specification, canonical SVG, optional PNG compatibility output, and insight. -->
+    </section>
+
+    <section id="svg-visualizations">
+      <h2>SVG Visualizations</h2>
+      <!-- For every required chart bundle, render a figure that references its canonical local chart.svg via a safe relative path. -->
+    </section>
+
+    <section id="evidence">
+      <h2>Evidence</h2>
+      <!-- List the Evidence IDs that support material observations and interpretations. -->
+    </section>
+
+    <section id="sources">
+      <h2>Sources</h2>
+      <!-- List Source IDs and source metadata without making remote content a report dependency. -->
+    </section>
+
+    <section id="citations">
+      <h2>Citations</h2>
+      <!-- Cite Source and Evidence IDs in report context; optional links are passive references only. -->
+      <template id="citation-badge-template">
+        <span class="citation-group" data-citation-group="FG-TEMPLATE">
+          <a class="citation-badge" href="#source-record" aria-describedby="source-preview-template">[ Source ]</a>
+          <span class="source-preview" id="source-preview-template" role="note">
+            <strong data-source-field="publisher_short_name">Publisher</strong>
+            <span data-source-field="title">Source title</span>
+            <span data-source-field="excerpt">Verified excerpt</span>
+            <span data-source-field="canonical_url">Canonical URL</span>
+          </span>
+        </span>
+      </template>
+    </section>
+
+    <section id="limitations-and-unknowns">
+      <h2>Limitations and Unknowns</h2>
+      <!-- Preserve missing data, contradictions, stale sources, and unresolved research gaps. -->
+    </section>
+
+    <section id="verification-summary">
+      <h2>Verification Summary</h2>
+      <p data-verification-status="PENDING">Verification has not completed.</p>
+      <!-- Record PASS, PARTIAL, or FAIL and reference the competitor verification artifact. -->
+    </section>
+  </main>
+</body>
+</html>

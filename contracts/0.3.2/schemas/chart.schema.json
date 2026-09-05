@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Chart Spec and Bundle Artifact Contracts",
+  "$defs": {
+    "chart_id": {"enum": ["feature_matrix", "feature_ux_matrix", "capability_matrix", "integration_security_coverage", "positioning_map", "momentum_comparison", "ecosystem_momentum", "cost_performance", "pricing_comparison", "oss_activity", "sentiment_distribution"]},
+    "renderer_kind": {"enum": ["matrix", "scatter", "bar", "line", "distribution"]},
+    "data_contract": {"enum": ["competitor_by_dimension_cells", "competitor_xy_points", "category_values", "time_series_values", "bucket_counts"]},
+    "chart_spec": {
+      "type": "object",
+      "required": ["chart_id", "renderer_kind", "data_contract", "title", "description", "width", "height"],
+      "properties": {
+        "chart_id": {"$ref": "#/$defs/chart_id"},
+        "renderer_kind": {"$ref": "#/$defs/renderer_kind"},
+        "data_contract": {"$ref": "#/$defs/data_contract"},
+        "title": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1},
+        "width": {"type": "integer", "minimum": 320, "maximum": 2400},
+        "height": {"type": "integer", "minimum": 240, "maximum": 1600},
+        "style_tokens": {"type": "object", "propertyNames": {"$ref": "common.schema.json#/$defs/machine_id"}, "additionalProperties": {"type": "string", "minLength": 1}}
+      },
+      "additionalProperties": false
+    },
+    "chart_data": {
+      "type": "object",
+      "required": ["data_contract", "rows"],
+      "properties": {
+        "data_contract": {"$ref": "#/$defs/data_contract"},
+        "rows": {"type": "array", "minItems": 1, "items": {"type": "object"}}
+      },
+      "additionalProperties": false
+    },
+    "compatibility_export": {
+      "type": "object",
+      "required": ["requested", "status", "error"],
+      "properties": {
+        "requested": {"type": "boolean"},
+        "status": {"enum": ["NOT_REQUESTED", "COMPLETE", "PARTIAL"]},
+        "error": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "svg_fixture": {
+      "type": "object",
+      "required": ["svg"],
+      "properties": {"svg": {"type": "string", "minLength": 1}},
+      "additionalProperties": false
+    },
+    "chart_bundle": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "chart", "data_ref", "chart_spec_ref", "svg_ref", "insight_ref", "compatibility_export", "observation", "interpretation", "product_implication", "confidence", "claim_refs", "evidence_ids", "limitations"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "chart_bundle"}}},
+            "chart": {
+              "type": "object",
+              "required": ["id", "type", "renderer_kind"],
+              "properties": {
+                "id": {"$ref": "common.schema.json#/$defs/machine_id"},
+                "type": {"$ref": "#/$defs/chart_id"},
+                "renderer_kind": {"$ref": "#/$defs/renderer_kind"}
+              },
+              "additionalProperties": false
+            },
+            "data_ref": {"$ref": "common.schema.json#/$defs/relative_path"},
+            "chart_spec_ref": {"$ref": "common.schema.json#/$defs/relative_path"},
+            "svg_ref": {"$ref": "common.schema.json#/$defs/relative_path"},
+            "png_ref": {"$ref": "common.schema.json#/$defs/relative_path"},
+            "insight_ref": {"$ref": "common.schema.json#/$defs/relative_path"},
+            "compatibility_export": {"$ref": "#/$defs/compatibility_export"},
+            "observation": {"type": "string", "minLength": 1},
+            "interpretation": {"type": "string", "minLength": 1},
+            "product_implication": {"type": "string", "minLength": 1},
+            "confidence": {"enum": ["HIGH", "MEDIUM", "LOW", "INSUFFICIENT"]},
+            "claim_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/claim_id"}},
+            "evidence_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/evidence_id"}},
+            "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}}
+          },
+          "allOf": [
+            {"if": {"properties": {"compatibility_export": {"properties": {"status": {"const": "COMPLETE"}}}}}, "then": {"required": ["png_ref"]}},
+            {"if": {"properties": {"compatibility_export": {"properties": {"status": {"const": "PARTIAL"}}}}}, "then": {"not": {"required": ["png_ref"]}}}
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "chart_bundle_collection": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "bundles"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "chart_bundle_collection"}}},
+            "bundles": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/chart_bundle"}}
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "$ref": "#/$defs/chart_bundle"
+}

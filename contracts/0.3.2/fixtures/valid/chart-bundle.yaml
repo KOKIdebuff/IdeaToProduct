@@ -1,0 +1,29 @@
+artifact:
+  id: ART-CHART-001
+  type: chart_bundle
+  schema_version: 0.3.2
+  version: 1
+  produced_by:
+    skill: competitor-visualization
+    attempt: ATT-00020
+  created_at: "2026-08-08T06:00:00Z"
+  supersedes: null
+  status: active
+chart:
+  id: chart_momentum_001
+  type: momentum_comparison
+  renderer_kind: bar
+data_ref: artifacts/02-research/competitors/visualizations/momentum-comparison/data.json
+chart_spec_ref: artifacts/02-research/competitors/visualizations/momentum-comparison/chart-spec.json
+svg_ref: artifacts/02-research/competitors/visualizations/momentum-comparison/chart.svg
+png_ref: artifacts/02-research/competitors/visualizations/momentum-comparison/chart.png
+insight_ref: artifacts/02-research/competitors/visualizations/momentum-comparison/insight.md
+compatibility_export: {requested: true, status: COMPLETE, error: null}
+observation: Product A has the strongest measured recent momentum.
+interpretation: The momentum signal is supported by multiple time-bound metrics.
+product_implication: Differentiate on workflow depth rather than project activity alone.
+confidence: MEDIUM
+claim_refs: [CL-001]
+evidence_ids: [EV-001]
+limitations:
+  - Repository activity is not equivalent to commercial adoption.

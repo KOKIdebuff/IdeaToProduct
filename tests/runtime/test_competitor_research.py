@@ -3,9 +3,12 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+import json
 from pathlib import Path
+import shutil
 
 import pytest
+import yaml
 
 from skillgraph_runtime import (
     AdaptiveIdeaShapingService,
@@ -19,7 +22,9 @@ from skillgraph_runtime import (
     RuntimeOperations,
 )
 from skillgraph_runtime.domain import GateDecision, NodeStatus
+from skillgraph_runtime import graph as graph_module
 from skillgraph_runtime.storage import RunStorage, declared_workspace_path_matches
+from skillgraph_runtime._validation import validate_contracts as validator_module
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -149,16 +154,31 @@ def gate_document() -> dict:
     }
 
 
-def services(tmp_path: Path, catalog: dict | None = None, *, host_max_parallel: int = 2):
-    kernel = RuntimeKernel(ROOT, storage_root=tmp_path, id_factory=FixedIds(), clock=FixedClock(), host_max_parallel=host_max_parallel)
+def services(
+    tmp_path: Path,
+    catalog: dict | None = None,
+    *,
+    host_max_parallel: int = 2,
+    repository_root: Path = ROOT,
+):
+    kernel = RuntimeKernel(repository_root, storage_root=tmp_path, id_factory=FixedIds(), clock=FixedClock(), host_max_parallel=host_max_parallel)
     idea = AdaptiveIdeaShapingService(kernel, FixtureHostLLMProvider({"*": full_hypothesis()}))
     competitor = CompetitorResearchService(kernel, FixtureCompetitorResearchProvider(catalog or fixture_catalog()))
     return kernel, RuntimeOperations(kernel, idea_shaping=idea, competitor_research=competitor)
 
 
-def prepare_discovery(tmp_path: Path, catalog: dict | None = None, *, host_max_parallel: int = 2):
-    kernel, operations = services(tmp_path, catalog, host_max_parallel=host_max_parallel)
-    created = kernel.create_persisted_run(CreateRunCommand("Build a trustworthy coding-agent progress dashboard", "developer_tool"))
+def prepare_discovery(
+    tmp_path: Path,
+    catalog: dict | None = None,
+    *,
+    host_max_parallel: int = 2,
+    repository_root: Path = ROOT,
+    contract_version: str | None = None,
+):
+    kernel, operations = services(tmp_path, catalog, host_max_parallel=host_max_parallel, repository_root=repository_root)
+    created = kernel.create_persisted_run(
+        CreateRunCommand("Build a trustworthy coding-agent progress dashboard", "developer_tool", contract_version=contract_version)
+    )
     run_id = created.run_id
     initial = kernel.schedule_persisted(run_id)
     operations.execute_p0_03_attempt(run_id, initial.attempts_to_start[0].attempt_id)
@@ -259,8 +279,21 @@ def test_directory_declaration_is_contained_and_deep_dive_path_is_instance_bound
     assert not declared_workspace_path_matches("artifacts/02-research/competitors/deep-dives-escaped/cmp_001.yaml", declared)
 
 
-def _complete_p04_through_analysis(tmp_path: Path, *, catalog: dict | None = None, host_max_parallel: int = 2):
-    kernel, operations, run_id, discovery_attempt = prepare_discovery(tmp_path, catalog, host_max_parallel=host_max_parallel)
+def _complete_p04_through_analysis(
+    tmp_path: Path,
+    *,
+    catalog: dict | None = None,
+    host_max_parallel: int = 2,
+    repository_root: Path = ROOT,
+    contract_version: str | None = None,
+):
+    kernel, operations, run_id, discovery_attempt = prepare_discovery(
+        tmp_path,
+        catalog,
+        host_max_parallel=host_max_parallel,
+        repository_root=repository_root,
+        contract_version=contract_version,
+    )
     operations.execute_p0_04_attempt(run_id, discovery_attempt)
     ranking = kernel.schedule_persisted(run_id, requested_nodes=(NodeAddress(("competitor",), "candidate_ranking"),))
     operations.execute_p0_04_attempt(run_id, ranking.attempts_to_start[0].attempt_id)
@@ -294,6 +327,82 @@ def _complete_p04_through_analysis(tmp_path: Path, *, catalog: dict | None = Non
     return kernel, operations, run_id
 
 
+def _temporary_v031_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Activate 0.3.1 only inside a disposable contract-root fixture."""
+
+    repository_root = tmp_path / "repository"
+    contracts = repository_root / "contracts"
+    shutil.copytree(ROOT / "contracts", contracts)
+    registry_path = contracts / "registry.yaml"
+    registry = yaml.safe_load(registry_path.read_text(encoding="utf-8"))
+    versions = registry["registry"]["versions"]
+    registry["registry"]["default_new_run_version"] = "0.3.1"
+    versions["0.3.0"] = {
+        "status": "frozen_previous",
+        "bundle_root": "contracts/0.3.0",
+        "new_runs_allowed": False,
+        "resume_allowed": True,
+        "audit_allowed": True,
+    }
+    versions["0.3.1"] = {
+        "status": "current",
+        "bundle_root": "contracts/0.3.1",
+        "new_runs_allowed": True,
+        "resume_allowed": True,
+        "audit_allowed": True,
+    }
+    registry_path.write_text(yaml.safe_dump(registry, sort_keys=False), encoding="utf-8")
+
+    schema_path = contracts / "registry.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    registry_schema = schema["properties"]["registry"]
+    registry_schema["properties"]["default_new_run_version"] = {"const": "0.3.1"}
+    version_schema = registry_schema["properties"]["versions"]
+    version_schema["required"].append("0.3.1")
+    version_schema["properties"]["0.3.0"] = {
+        "$ref": "#/$defs/version_entry",
+        "properties": {
+            "status": {"const": "frozen_previous"},
+            "bundle_root": {"const": "contracts/0.3.0"},
+            "new_runs_allowed": {"const": False},
+            "resume_allowed": {"const": True},
+            "audit_allowed": {"const": True},
+        },
+    }
+    version_schema["properties"]["0.3.1"] = {
+        "$ref": "#/$defs/version_entry",
+        "properties": {
+            "status": {"const": "current"},
+            "bundle_root": {"const": "contracts/0.3.1"},
+            "new_runs_allowed": {"const": True},
+            "resume_allowed": {"const": True},
+            "audit_allowed": {"const": True},
+        },
+    }
+    schema_path.write_text(json.dumps(schema, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    monkeypatch.setattr(validator_module, "ROOT", repository_root)
+    monkeypatch.delitem(validator_module.STAGED_STATIC_BUNDLE_ROOTS, "0.3.1")
+    # Static Bundle closure is verified against the real repository separately.
+    # This disposable Registry fixture exists solely to exercise the future
+    # Runtime graph, and lacks the root-level frozen-document audit inputs.
+    monkeypatch.setattr(graph_module, "validate_bundle", lambda _context, *, registry: ([], 0))
+    return repository_root
+
+
+def _complete_v031_through_fact_provenance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    repository_root = _temporary_v031_repository(tmp_path, monkeypatch)
+    kernel, operations, run_id = _complete_p04_through_analysis(
+        tmp_path / "runtime",
+        repository_root=repository_root,
+        contract_version="0.3.1",
+    )
+    fact_plan = kernel.schedule_persisted(run_id, requested_nodes=(NodeAddress(("competitor",), "fact_provenance"),))
+    assert len(fact_plan.attempts_to_start) == 1
+    result = operations.execute_p0_04_attempt(run_id, fact_plan.attempts_to_start[0].attempt_id)
+    assert result["outcome"] == "FACT_PROVENANCE_MATERIALIZED"
+    return repository_root, kernel, operations, run_id
+
+
 def test_normalized_dataset_and_deterministic_analyses_persist_provenance(tmp_path: Path):
     kernel, _operations, run_id = _complete_p04_through_analysis(tmp_path)
     snapshot = kernel.load_run(run_id)
@@ -317,15 +426,106 @@ def test_normalized_dataset_and_deterministic_analyses_persist_provenance(tmp_pa
     assert any("pricing=null" in observation for observation in pricing["observations"])
     assert all(document["evidence_ids"] for document in (feature, traction, review, pricing))
 
-    evidence, claims = storage.read_research_provenance(snapshot.state_version)
+    evidence, claims, fact_bindings = storage.read_research_provenance(snapshot.state_version)
     evidence_ids = {item["id"] for item in evidence}
     assert evidence_ids and claims
+    assert fact_bindings == ()
     assert all(set(item["evidence_ids"]).issubset(evidence_ids) for item in claims)
     assert snapshot.node_states[NodeAddress(("competitor",), "visualization")].status is NodeStatus.READY
 
     restored = RuntimeKernel(ROOT, storage_root=tmp_path, id_factory=FixedIds(), clock=FixedClock(), host_max_parallel=2)
-    recovered_evidence, recovered_claims = RunStorage(tmp_path, run_id).read_research_provenance(restored.load_run(run_id).state_version)
-    assert recovered_evidence == evidence and recovered_claims == claims
+    recovered_evidence, recovered_claims, recovered_bindings = RunStorage(tmp_path, run_id).read_research_provenance(restored.load_run(run_id).state_version)
+    assert recovered_evidence == evidence and recovered_claims == claims and recovered_bindings == fact_bindings
+
+
+def test_fact_provenance_materializes_a_closed_projection_in_an_isolated_v031_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    repository_root, kernel, _operations, run_id = _complete_v031_through_fact_provenance(tmp_path, monkeypatch)
+    snapshot = kernel.load_run(run_id)
+    storage = RunStorage(tmp_path / "runtime", run_id)
+    state = snapshot.node_states[NodeAddress(("competitor",), "fact_provenance")]
+    assert state.status is NodeStatus.VERIFIED
+    projection_ref = state.artifact_refs[-1]
+    projection = storage.read_artifact(projection_ref)
+    assert projection["artifact"]["type"] == "report_projection"
+    assert projection["input_state_version"] == snapshot.state_version
+    assert projection["input_artifact_refs"] == list(kernel._report_projection_input_refs(snapshot))
+    assert [(group["id"], group["dom_scope_id"]) for group in projection["fact_groups"]] == [
+        ("FG-FEATURE", "analysis-feature"),
+        ("FG-TRACTION", "analysis-traction"),
+        ("FG-REVIEW", "analysis-review"),
+        ("FG-PRICING", "analysis-pricing"),
+    ]
+    evidence, claims, fact_bindings = storage.read_research_provenance(snapshot.state_version)
+    assert evidence and claims and fact_bindings
+    projected_facts = [fact for group in projection["fact_groups"] for fact in group["facts"]]
+    assert tuple(sorted(projected_facts, key=lambda item: item["fact_id"])) == fact_bindings
+    assert projection["citation_closure"] == {
+        "claim_ids": sorted({claim_id for item in fact_bindings for claim_id in item["claim_refs"]}),
+        "evidence_ids": sorted({evidence_id for item in fact_bindings for evidence_id in item["evidence_refs"]}),
+        "source_ids": sorted({source_id for item in fact_bindings for source_id in item["source_refs"]}),
+    }
+    manifest = storage._manifest()
+    assert manifest["current_artifacts"]["report_projection"]["artifact_ref"] == projection_ref
+
+    restored = RuntimeKernel(repository_root, storage_root=tmp_path / "runtime", id_factory=FixedIds(), clock=FixedClock())
+    assert restored.load_run(run_id).state_version == snapshot.state_version
+    assert yaml.safe_load((ROOT / "contracts" / "registry.yaml").read_text(encoding="utf-8"))["registry"]["default_new_run_version"] == "0.3.0"
+
+
+def test_fact_provenance_fails_closed_when_an_observation_claim_is_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    repository_root = _temporary_v031_repository(tmp_path, monkeypatch)
+    kernel, operations, run_id = _complete_p04_through_analysis(
+        tmp_path / "runtime",
+        repository_root=repository_root,
+        contract_version="0.3.1",
+    )
+    snapshot = kernel.load_run(run_id)
+    storage = RunStorage(tmp_path / "runtime", run_id)
+    sidecar_path = max(
+        storage._path("runtime/research-provenance").glob("*.json"),
+        key=lambda path: int(path.stem),
+    )
+    sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    sidecar["claims"] = sidecar["claims"][1:]
+    sidecar_path.write_text(json.dumps(sidecar, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+
+    plan = kernel.schedule_persisted(run_id, requested_nodes=(NodeAddress(("competitor",), "fact_provenance"),))
+    result = operations.execute_p0_04_attempt(run_id, plan.attempts_to_start[0].attempt_id)
+    assert result["outcome"] == "INSUFFICIENT_EVIDENCE"
+    manifest = storage._manifest()
+    assert "report_projection" not in manifest["current_artifacts"]
+
+
+def test_fact_provenance_invalidation_removes_projection_and_effective_stale_bindings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _repository_root, kernel, _operations, run_id = _complete_v031_through_fact_provenance(tmp_path, monkeypatch)
+    storage = RunStorage(tmp_path / "runtime", run_id)
+    before = kernel.load_run(run_id)
+    feature_address = NodeAddress(("competitor",), "feature_analysis")
+    feature_ref = before.node_states[feature_address].artifact_refs[-1]
+    result = kernel.invalidate_persisted_downstream(run_id, feature_address)
+    after = kernel.load_run(run_id)
+    assert NodeAddress(("competitor",), "fact_provenance") in result.invalidated
+    assert after.node_states[NodeAddress(("competitor",), "fact_provenance")].status is NodeStatus.INVALIDATED
+    assert "report_projection" not in storage._manifest()["current_artifacts"]
+    _evidence, _claims, bindings = storage.read_research_provenance(after.state_version)
+    assert bindings and all(binding["origin_artifact_ref"] != feature_ref for binding in bindings)
+
+
+def test_fact_provenance_sidecar_reads_legacy_records_and_rejects_conflicting_bindings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    storage = RunStorage(tmp_path, "run_fact_legacy")
+    storage._write_immutable_json(
+        "runtime/research-provenance/1.json",
+        {"schema_version": "0.3.0", "state_version": 1, "evidence": [], "claims": []},
+    )
+    assert storage.read_research_provenance(1) == ((), (), ())
+
+    _repository_root, kernel, _operations, run_id = _complete_v031_through_fact_provenance(tmp_path / "active", monkeypatch)
+    snapshot = kernel.load_run(run_id)
+    _evidence, _claims, bindings = RunStorage(tmp_path / "active" / "runtime", run_id).read_research_provenance(snapshot.state_version)
+    conflicting = dict(bindings[0], content_hash="sha256:" + "0" * 64)
+    with pytest.raises(RuntimeContractError) as captured:
+        kernel._merged_research_provenance(snapshot, (), (), fact_binding_records=(conflicting,))
+    assert captured.value.rule == "fact_binding_identity"
 
 
 def test_source_canonicalization_rewrites_aliases_without_fetching(tmp_path: Path):
@@ -462,10 +662,11 @@ def test_provenance_sidecar_rejects_dangling_or_conflicting_records_and_ignores_
         evidence=(evidence,),
         claims=(claim,),
     )
-    assert storage.read_research_provenance(snapshot.state_version - 1) == ((), ())
-    idempotent_evidence, idempotent_claims = kernel._merged_research_provenance(snapshot, (evidence,), (claim,))
+    assert storage.read_research_provenance(snapshot.state_version - 1) == ((), (), ())
+    idempotent_evidence, idempotent_claims, idempotent_bindings = kernel._merged_research_provenance(snapshot, (evidence,), (claim,))
     assert idempotent_evidence == (evidence,)
     assert idempotent_claims == (claim,)
+    assert idempotent_bindings == ()
 
     conflicting = dict(evidence, notes="Different immutable evidence content.")
     with pytest.raises(RuntimeContractError) as captured:

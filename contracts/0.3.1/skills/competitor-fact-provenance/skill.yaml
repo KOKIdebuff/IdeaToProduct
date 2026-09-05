@@ -1,0 +1,34 @@
+skill:
+  id: competitor-fact-provenance
+  version: 0.3.1
+  type: transform
+inputs:
+  required: [research_contract, competitor_candidates, competitor_ranking, competitor_deep_dive, competitor_dataset, competitor_analysis, source_index]
+  optional: []
+reads:
+  - artifacts/01-contract/research-contract.yaml
+  - artifacts/02-research/competitors/candidates.json
+  - artifacts/02-research/competitors/ranking.yaml
+  - artifacts/02-research/competitors/deep-dives/
+  - artifacts/02-research/competitors/competitor-dataset.json
+  - artifacts/02-research/competitors/analysis/
+  - artifacts/02-research/source-index.json
+writes:
+  - artifacts/02-research/competitors/report-projection.json
+output_contracts:
+  - artifact_type: report_projection
+    write: artifacts/02-research/competitors/report-projection.json
+    schema_ref: schemas/competitor.schema.json#/$defs/report_projection
+    template_ref: null
+evidence: {required: true, provenance_required: true}
+permissions:
+  external_access: none
+  workspace_write: [artifacts/02-research/competitors/report-projection.json]
+  secrets: forbidden
+budget: {timeout_minutes: 20, max_sources: 0}
+executor: {allowed_adapter_types: [fixture, manual, host_agent]}
+completion:
+  required_outputs: [report_projection]
+  citation_closure_complete: true
+  stable_fact_groups: true
+on_failure: [emit_research_gap]

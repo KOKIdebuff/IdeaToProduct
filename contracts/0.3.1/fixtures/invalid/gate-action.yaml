@@ -1,0 +1,13 @@
+gate:
+  id: gate_scope
+  status: WAITING_FOR_USER
+  gate_type: mvp_scope
+question: Approve the MVP scope?
+options:
+  - id: proposed_scope
+recommendation:
+  option: proposed_scope
+input_artifact_refs: [ART-SCOPE-001@1]
+risks: []
+proposed_structured_diff_ref: null
+allowed_actions: [APPROVE, MODIFY, CANCEL, PARTIAL_ACCEPTED]

@@ -1,0 +1,34 @@
+skill:
+  id: report-publication-projection
+  version: 0.3.2
+  type: generator
+inputs:
+  required: [report_projection, chart_bundle_collection]
+  optional: [source_index]
+reads:
+  - artifacts/02-research/competitors/report-projection.json
+  - artifacts/02-research/competitors/visualizations/
+  - artifacts/02-research/source-index.json
+writes:
+  - artifacts/02-research/competitors/report-publication-projection.json
+output_contracts:
+  - artifact_type: report_publication_projection
+    write: artifacts/02-research/competitors/report-publication-projection.json
+    schema_ref: schemas/competitor.schema.json#/$defs/report_publication_projection
+    template_ref: null
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: none
+  workspace_write: [artifacts/02-research/competitors/report-publication-projection.json]
+  secrets: forbidden
+budget: {timeout_minutes: 5, max_sources: 0}
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [report_publication_projection]
+  citation_closure_complete: true
+  initial_verification_status: PENDING
+  missing_score_status: NOT_PERFORMED
+on_failure: [emit_research_gap]

@@ -1,0 +1,18 @@
+artifact:
+  id: ART-JUDGMENT-DECIMAL
+  type: dimension_judgment
+  schema_version: 0.3.2
+  version: 1
+  produced_by: {skill: competitor-scoring, attempt: ATT-SCORE-DECIMAL}
+  created_at: "2026-09-01T00:00:00Z"
+  supersedes: null
+  status: active
+competitor_id: cmp_001
+rubric_ref: rubrics/developer-tool-scoring.yaml
+rubric_version: 1.0.0
+dimension_id: workflow_fit
+judgment_status: SCORED
+score: 7.5
+claim_refs: [CL-001]
+evidence_refs: [EV-001]
+rationale: Decimal scores are forbidden.

@@ -1,0 +1,23 @@
+artifact:
+  id: ART-CHART-004
+  type: chart_bundle
+  schema_version: 0.3.0
+  version: 1
+  produced_by:
+    skill: competitor-visualization
+    attempt: ATT-00023
+  created_at: "2026-08-24T06:00:00Z"
+  supersedes: null
+  status: active
+chart:
+  id: chart_momentum_004
+  type: momentum_comparison
+data_ref: artifacts/02-research/competitors/visualizations/momentum-comparison/data.json
+chart_spec_ref: artifacts/02-research/competitors/visualizations/momentum-comparison/chart-spec.json
+insight_ref: artifacts/02-research/competitors/visualizations/momentum-comparison/insight.md
+observation: Missing canonical SVG.
+interpretation: The report cannot render the canonical chart.
+product_implication: Reject the bundle.
+confidence: LOW
+evidence_ids: []
+limitations: []

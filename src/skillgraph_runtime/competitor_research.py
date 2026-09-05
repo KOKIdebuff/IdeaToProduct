@@ -14,6 +14,7 @@ from typing import Any, Callable, Mapping, Protocol, Sequence, TYPE_CHECKING
 
 from .domain import AttemptStatus, FanOutExpansion, NodeAddress, NodeStatus, deep_freeze, deep_thaw
 from .errors import RuntimeContractError
+from .fact_provenance import canonical_value_hash
 
 if TYPE_CHECKING:  # pragma: no cover - imports only support static checking
     from .kernel import RuntimeKernel
@@ -31,6 +32,12 @@ _ANALYSIS_NODE_TYPES = {
     "pricing_analysis": "pricing",
 }
 _ANALYSIS_ADDRESSES = tuple(NodeAddress(("competitor",), node_id) for node_id in _ANALYSIS_NODE_TYPES)
+_PROJECTION_ANALYSES = (
+    ("feature_analysis", "feature", "FG-FEATURE", "analysis-feature"),
+    ("traction_analysis", "traction", "FG-TRACTION", "analysis-traction"),
+    ("review_analysis", "review", "FG-REVIEW", "analysis-review"),
+    ("pricing_analysis", "pricing", "FG-PRICING", "analysis-pricing"),
+)
 
 
 class CompetitorResearchProvider(Protocol):
@@ -394,9 +401,13 @@ def _display_number(value: Any) -> str:
 
 
 class CompetitorResearchService:
-    """Advance only P0-04-T1～T4 internal competitor Attempts."""
+    """Advance the Kernel-owned Competitor Research business Attempts."""
 
-    def __init__(self, kernel: "RuntimeKernel", provider: CompetitorResearchProvider | None = None) -> None:
+    def __init__(
+        self,
+        kernel: "RuntimeKernel",
+        provider: CompetitorResearchProvider | None = None,
+    ) -> None:
         self.kernel = kernel
         self.provider = provider or ConservativeCompetitorResearchProvider()
 
@@ -879,6 +890,104 @@ class CompetitorResearchService:
             "scheduled_attempt_ids": [item.attempt_id for item in scheduled.attempts_to_start],
         }
 
+    def _advance_fact_provenance(self, snapshot, attempt) -> Mapping[str, Any]:
+        """Materialize citeable analysis observations into one Report Projection."""
+
+        try:
+            input_artifact_refs = self.kernel._report_projection_input_refs(snapshot)
+            storage = self.kernel._storage_for(snapshot.run_id)
+            evidence_records, claim_records, _existing_bindings = storage.read_research_provenance(snapshot.state_version)
+            evidence_by_id = {str(item.get("id")): item for item in evidence_records}
+            claims_by_statement: dict[str, list[Mapping[str, Any]]] = {}
+            for claim in claim_records:
+                statement = claim.get("statement")
+                if isinstance(statement, str) and claim.get("status") in {"VALIDATED", "PARTIALLY_VALIDATED"}:
+                    claims_by_statement.setdefault(statement, []).append(claim)
+            source_index = self.kernel.source_index_for(snapshot.run_id)
+            fact_groups: list[Mapping[str, Any]] = []
+            fact_bindings: list[Mapping[str, Any]] = []
+            for node_id, analysis_type, group_id, dom_scope_id in _PROJECTION_ANALYSES:
+                address = NodeAddress(("competitor",), node_id)
+                state = snapshot.node_states[address]
+                origin_ref = state.artifact_refs[-1]
+                analysis = self._artifact(snapshot, origin_ref)
+                if analysis.get("analysis_type") != analysis_type:
+                    raise RuntimeContractError("Analysis Artifact type does not match its node", code="SCHEMA_INVALID", rule="fact_projection_analysis_type")
+                observations = analysis.get("observations")
+                if not isinstance(observations, list) or not observations or any(not isinstance(item, str) or not item for item in observations):
+                    raise RuntimeContractError("Analysis Artifact has no renderable observations", code="INSUFFICIENT_EVIDENCE", rule="fact_projection_observations")
+                group_facts: list[Mapping[str, Any]] = []
+                group_sources: set[str] = set()
+                for index, observation in enumerate(observations):
+                    candidates = claims_by_statement.get(observation, ())
+                    if len(candidates) != 1:
+                        raise RuntimeContractError("Analysis observation does not have exactly one verified Claim", code="INSUFFICIENT_EVIDENCE", rule="fact_projection_claim")
+                    claim = candidates[0]
+                    claim_refs = (str(claim["id"]),)
+                    evidence_refs = tuple(sorted({str(item) for item in claim.get("evidence_ids", ())}))
+                    if not evidence_refs or any(reference not in evidence_by_id for reference in evidence_refs):
+                        raise RuntimeContractError("Analysis Claim has incomplete Evidence", code="INSUFFICIENT_EVIDENCE", rule="fact_projection_evidence")
+                    source_refs = tuple(sorted({str(evidence_by_id[reference].get("source_id")) for reference in evidence_refs}))
+                    if not source_refs or any(reference not in source_index for reference in source_refs):
+                        raise RuntimeContractError("Analysis Evidence has incomplete Source closure", code="INSUFFICIENT_EVIDENCE", rule="fact_projection_source")
+                    pointer = f"/observations/{index}"
+                    content_hash = canonical_value_hash(observation)
+                    digest = hashlib.sha256(f"{origin_ref}\0{pointer}\0{content_hash}".encode("utf-8")).hexdigest()[:20].upper()
+                    binding = {
+                        "fact_id": f"FACT-COMP-{digest}",
+                        "origin_artifact_ref": origin_ref,
+                        "origin_field_pointer": pointer,
+                        "content_hash": content_hash,
+                        "fact_class": "analysis",
+                        "claim_refs": list(claim_refs),
+                        "evidence_refs": list(evidence_refs),
+                        "source_refs": list(source_refs),
+                    }
+                    group_facts.append(binding)
+                    fact_bindings.append(binding)
+                    group_sources.update(source_refs)
+                fact_groups.append(
+                    {
+                        "id": group_id,
+                        "section_id": node_id,
+                        "dom_scope_id": dom_scope_id,
+                        "facts": group_facts,
+                        "citation_source_ids": sorted(group_sources),
+                    }
+                )
+            closure = {
+                "claim_ids": sorted({claim_id for item in fact_bindings for claim_id in item["claim_refs"]}),
+                "evidence_ids": sorted({evidence_id for item in fact_bindings for evidence_id in item["evidence_refs"]}),
+                "source_ids": sorted({source_id for item in fact_bindings for source_id in item["source_refs"]}),
+            }
+            header = _artifact_header(snapshot, attempt, "report_projection", _artifact_id("REPORT-PROJECTION", snapshot.run_id))
+            header["created_at"] = self.kernel.clock.now()
+            document = {
+                "artifact": header,
+                "input_state_version": snapshot.state_version + 1,
+                "input_artifact_refs": list(input_artifact_refs),
+                "fact_groups": fact_groups,
+                "citation_closure": closure,
+                "verification_status": "PENDING",
+                "scoring_status": "NOT_PERFORMED",
+            }
+            document["artifact"]["content_hash"] = _canonical_hash(document)
+            completed = self.kernel.complete_persisted_business_attempt(
+                snapshot.run_id,
+                attempt.attempt_id,
+                (("artifacts/02-research/competitors/report-projection.json", document),),
+                fact_binding_records=tuple(fact_bindings),
+            )
+        except RuntimeContractError as error:
+            if error.code == "DEPENDENCY_NOT_READY":
+                raise
+            return self._blocked_outcome(snapshot, attempt, reason=str(error))
+        return {
+            "state": completed.to_wire_state(),
+            "outcome": "FACT_PROVENANCE_MATERIALIZED",
+            "artifact_ref": completed.node_states[attempt.address].artifact_refs[-1],
+        }
+
     def advance(self, run_id: str, attempt_id: str) -> Mapping[str, Any]:
         snapshot = self.kernel.load_run(run_id)
         attempt = next((item for item in snapshot.attempts if item.attempt_id == attempt_id), None)
@@ -899,4 +1008,6 @@ class CompetitorResearchService:
             return self._advance_normalizer(snapshot, attempt)
         if attempt.address.node_id in _ANALYSIS_NODE_TYPES:
             return self._advance_analysis(snapshot, attempt, _ANALYSIS_NODE_TYPES[attempt.address.node_id])
+        if attempt.address.node_id == "fact_provenance":
+            return self._advance_fact_provenance(snapshot, attempt)
         raise RuntimeContractError("Competitor Research Attempt belongs to a later P0-04 Task", rule="competitor_attempt_scope")

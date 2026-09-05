@@ -1,0 +1,125 @@
+subgraph:
+  id: competitor-research
+  version: 0.3.1
+  schema_version: 0.3.1
+
+inputs:
+  - idea_definition
+  - research_contract
+  - product_profile
+  - source_index
+
+output_contracts:
+  - artifact_type: competitor_candidates
+    producer: discovery
+  - artifact_type: competitor_ranking
+    producer: candidate_ranking
+  - artifact_type: competitor_deep_dive
+    producer: deep_dive
+  - artifact_type: competitor_dataset
+    producer: normalizer
+  - artifact_type: competitor_analysis
+    producer: feature_analysis
+  - artifact_type: competitor_analysis
+    producer: traction_analysis
+  - artifact_type: competitor_analysis
+    producer: review_analysis
+  - artifact_type: competitor_analysis
+    producer: pricing_analysis
+  - artifact_type: report_projection
+    producer: fact_provenance
+  - artifact_type: dimension_judgment
+    producer: scoring
+  - artifact_type: transparent_score
+    producer: scoring
+  - artifact_type: score_verification
+    producer: score_verifier
+  - artifact_type: chart_bundle
+    producer: visualization
+  - artifact_type: competitor_report
+    producer: visualization
+  - artifact_type: competitor_verification
+    producer: competitor_verifier
+
+nodes:
+  discovery:
+    kind: skill
+    skill: competitor-discovery
+    required: true
+
+  candidate_ranking:
+    kind: skill
+    skill: competitor-ranking
+    depends_on: [discovery]
+    required: true
+
+  deep_dive:
+    kind: skill
+    skill: competitor-deep-dive
+    depends_on: [candidate_ranking]
+    required: true
+
+  normalizer:
+    kind: skill
+    skill: competitor-normalizer
+    depends_on: [deep_dive]
+    required: true
+
+  feature_analysis:
+    kind: skill
+    skill: competitor-analysis
+    depends_on: [normalizer]
+    required: true
+
+  traction_analysis:
+    kind: skill
+    skill: competitor-analysis
+    depends_on: [normalizer]
+    required: true
+
+  review_analysis:
+    kind: skill
+    skill: competitor-analysis
+    depends_on: [normalizer]
+    required: true
+
+  pricing_analysis:
+    kind: skill
+    skill: competitor-analysis
+    depends_on: [normalizer]
+    required: true
+
+  fact_provenance:
+    kind: skill
+    skill: competitor-fact-provenance
+    depends_on:
+      - feature_analysis
+      - traction_analysis
+      - review_analysis
+      - pricing_analysis
+    required: true
+
+  scoring:
+    kind: skill
+    skill: competitor-scoring
+    depends_on: [fact_provenance]
+    required: false
+
+  score_verifier:
+    kind: verifier
+    skill: competitor-score-verifier
+    depends_on: [scoring]
+    required: false
+
+  visualization:
+    kind: skill
+    skill: competitor-visualization
+    depends_on:
+      - fact_provenance
+    required: true
+
+  competitor_verifier:
+    kind: verifier
+    skill: competitor-verifier
+    depends_on: [visualization]
+    required: true

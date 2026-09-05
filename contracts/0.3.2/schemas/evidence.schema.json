@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Evidence Contract",
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "required": ["id", "claim_id", "source_id", "evidence_type", "direction", "relevance", "reliability", "freshness", "notes"],
+      "properties": {
+        "id": {"$ref": "common.schema.json#/$defs/evidence_id"},
+        "claim_id": {"$ref": "common.schema.json#/$defs/claim_id"},
+        "source_id": {"$ref": "common.schema.json#/$defs/source_id"},
+        "evidence_type": {"enum": ["qualitative", "quantitative"]},
+        "direction": {"enum": ["supports", "contradicts", "contextual"]},
+        "relevance": {"enum": ["high", "medium", "low"]},
+        "reliability": {"enum": ["high", "medium", "low"]},
+        "freshness": {"enum": ["high", "medium", "low", "unknown"]},
+        "notes": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": ["evidence"],
+  "properties": {"evidence": {"$ref": "#/$defs/evidence"}},
+  "additionalProperties": false
+}

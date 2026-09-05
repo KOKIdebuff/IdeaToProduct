@@ -1,0 +1,10 @@
+proof_result:
+  proof_id: PROOF-001
+  submitted_at: "2026-08-08T05:00:00Z"
+  submitted_by: external_coding_agent
+  outcome: PASS
+  artifact_refs: [ART-PROOF-001@1]
+  evidence_ids: [EV-001]
+  observed_results: [The required API behavior was reproduced.]
+  limitations: [The proof was executed in a local environment only.]
+  executor_notes: No production deployment was performed.

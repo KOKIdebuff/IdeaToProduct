@@ -1,0 +1,40 @@
+artifact:
+  id: ART-CONTRACT-002
+  type: research_contract
+  schema_version: 0.3.1
+  version: 1
+  produced_by:
+    skill: research-contract
+    attempt: ATT-00005
+  created_at: "2026-08-08T04:30:00Z"
+  supersedes: null
+  status: active
+profile_ref: developer_tool@0.3.1
+effective_research:
+  competitor: required
+  users: required
+  market: required
+  technology: required
+research_questions:
+  competitors: []
+  users: []
+  market: []
+  technology: []
+required_evidence:
+  competitor_count: 5
+  primary_sources: 8
+  user_evidence_items: 15
+  oss_projects: 5
+required_visualizations: [feature_matrix]
+profile_adjustments: []
+run_policy:
+  max_parallel: 4
+  automated_attempt_timeout_minutes: 20
+  max_sources_per_research_node: 50
+  max_retries_per_node: 2
+  max_global_research_cycles: 2
+  automated_run_timeout_minutes: 120
+  host_token_limit: null
+  host_cost_limit: null
+stop_conditions:
+  max_research_loops: 2

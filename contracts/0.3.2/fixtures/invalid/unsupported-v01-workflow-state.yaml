@@ -1,0 +1,20 @@
+schema_version: 0.1.0
+workflow_id: product-discovery
+workflow_version: 0.1.0
+run_id: run_20260808_001
+state_version: 1
+workflow_status: RUNNING
+readiness_status: null
+current_gate: null
+global_research_cycle: 1
+profile_ref: developer_tool@0.1.0
+research_contract_ref: ART-CONTRACT-001@1
+nodes:
+  idea:
+    status: VERIFIED
+    attempt_count: 1
+    artifact_refs: [ART-IDEA-001@1]
+  competitor:
+    status: RUNNING
+    attempt_count: 1
+    artifact_refs: []

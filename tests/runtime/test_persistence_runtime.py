@@ -219,7 +219,7 @@ def test_artifact_versions_and_manifest_recovery_are_append_only(tmp_path: Path)
         "artifact": {
             "id": "ART-IDEA-001",
             "type": "idea_definition",
-            "schema_version": "0.2.0",
+            "schema_version": "0.3.0",
             "version": 1,
             "produced_by": {"skill": "idea-intake", "attempt": scheduled.attempts[0].attempt_id},
             "created_at": "2026-08-19T00:00:00Z",

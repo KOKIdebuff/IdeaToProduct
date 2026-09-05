@@ -1,0 +1,3 @@
+data_contract: category_values
+rows:
+  - {competitor_id: cmp_001, dimension_id: workflow_fit, value: 0.8, evidence_refs: [EV-001]}

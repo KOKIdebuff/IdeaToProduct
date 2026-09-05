@@ -1,0 +1,24 @@
+artifact:
+  id: ART-TRANSPARENT-SCORE-001
+  type: transparent_score
+  schema_version: 0.3.1
+  version: 1
+  produced_by: {skill: competitor-scoring, attempt: ATT-SCORE-001}
+  created_at: "2026-09-01T00:00:00Z"
+  supersedes: null
+  status: active
+competitor_id: cmp_001
+profile_ref: developer_tool@0.3.1
+rubric_ref: rubrics/developer-tool-scoring.yaml
+rubric_version: 1.0.0
+configured_weights: {workflow_fit: 0.2, developer_experience: 0.2, extensibility_integration: 0.2, ai_capability: 0.2, ecosystem_maturity: 0.2}
+effective_weights: {workflow_fit: 0.25, developer_experience: 0.25, extensibility_integration: 0.25, ai_capability: 0.25}
+coverage: 0.8
+status: PARTIAL
+missing_dimension_ids: [ecosystem_maturity]
+dimension_judgment_refs: [ART-JUDGMENT-001@1]
+score_verification_refs: [ART-SCORE-VERIFY-001@1]
+final_score: 7.5
+rank: 1
+tie_status: UNIQUE
+candidate_ranking_ref: ART-RANKING-001@1

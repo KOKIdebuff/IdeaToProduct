@@ -1,0 +1,3 @@
+data_contract: competitor_by_dimension_cells
+rows:
+  - {competitor_id: cmp_001, dimension_id: workflow_fit, value: 0.8, evidence_refs: [EV-001]}

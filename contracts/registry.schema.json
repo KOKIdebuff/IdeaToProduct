@@ -14,11 +14,11 @@
         "integrity"
       ],
       "properties": {
-        "default_new_run_version": {"const": "0.2.0"},
+        "default_new_run_version": {"const": "0.3.0"},
         "path_resolution": {"const": "repository_root_relative"},
         "versions": {
           "type": "object",
-          "required": ["0.1.0", "0.2.0"],
+          "required": ["0.1.0", "0.2.0", "0.3.0"],
           "properties": {
             "0.1.0": {
               "$ref": "#/$defs/version_entry",
@@ -33,8 +33,18 @@
             "0.2.0": {
               "$ref": "#/$defs/version_entry",
               "properties": {
-                "status": {"const": "current"},
+                "status": {"const": "frozen_previous"},
                 "bundle_root": {"const": "contracts/0.2.0"},
+                "new_runs_allowed": {"const": false},
+                "resume_allowed": {"const": true},
+                "audit_allowed": {"const": true}
+              }
+            },
+            "0.3.0": {
+              "$ref": "#/$defs/version_entry",
+              "properties": {
+                "status": {"const": "current"},
+                "bundle_root": {"const": "contracts/0.3.0"},
                 "new_runs_allowed": {"const": true},
                 "resume_allowed": {"const": true},
                 "audit_allowed": {"const": true}
@@ -59,17 +69,35 @@
         },
         "integrity": {
           "type": "object",
-          "required": ["baseline_manifest", "frozen_documents_sha256"],
+          "required": ["baseline_manifest", "frozen_bundle_manifests", "frozen_documents_sha256"],
           "properties": {
             "baseline_manifest": {"const": "contracts/0.1.0-baseline.sha256.json"},
+            "frozen_bundle_manifests": {
+              "type": "object",
+              "required": ["0.2.0"],
+              "properties": {
+                "0.2.0": {
+                  "type": "object",
+                  "required": ["manifest", "sha256"],
+                  "properties": {
+                    "manifest": {"const": "contracts/0.2.0-bundle.sha256.json"},
+                    "sha256": {"const": "a629ae9bdac8dc0e0ce4f20145e10bc1453649b012a3e5df0cda2ad6a10f6eda"}
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
             "frozen_documents_sha256": {
               "type": "object",
-              "required": ["PRD_v0.1.md", "PRD_v0.2.md", "SPEC_v0.1.md", "SPEC_v0.2.md"],
+              "required": ["PRD_v0.1.md", "PRD_v0.2.md", "PRD_v0.3.md", "SPEC_v0.1.md", "SPEC_v0.2.md", "SPEC_v0.3.md"],
               "properties": {
                 "PRD_v0.1.md": {"const": "4f30af7ad396f618bd3a06f82194cd8bb9a2d1fc378c04d3cd7986ee843cbf94"},
                 "PRD_v0.2.md": {"const": "159f8e7298fa118225d686cd1d4cf0d044fd11a879cebb73d82186ecd5fe9797"},
+                "PRD_v0.3.md": {"const": "62749b4df247a7e85f642e253e2533630e8564d3093634bd012342a90cd7a292"},
                 "SPEC_v0.1.md": {"const": "3ff75e1c02d6d4088d45c210349f5ec4ae5620d453a63d82bc34a2219e1079ee"},
-                "SPEC_v0.2.md": {"const": "9cd4a7cbf284499752974213ff2ac8eb48a5ecb15951e92e1a89cf1b98f4b4e4"}
+                "SPEC_v0.2.md": {"const": "9cd4a7cbf284499752974213ff2ac8eb48a5ecb15951e92e1a89cf1b98f4b4e4"},
+                "SPEC_v0.3.md": {"const": "c0777350be6a444ad39a5a2136ec746241214b5dfe10df195e52157ca996990b"}
               },
               "additionalProperties": false
             }
@@ -85,7 +113,7 @@
       "type": "object",
       "required": ["status", "bundle_root", "new_runs_allowed", "resume_allowed", "audit_allowed"],
       "properties": {
-        "status": {"enum": ["immutable_baseline", "current"]},
+        "status": {"enum": ["immutable_baseline", "frozen_previous", "current"]},
         "bundle_root": {"type": "string", "minLength": 1},
         "new_runs_allowed": {"type": "boolean"},
         "resume_allowed": {"type": "boolean"},
@@ -109,7 +137,7 @@
       "properties": {
         "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
         "source_contract_version": {"const": "0.1.0"},
-        "target_contract_version": {"const": "0.2.0"},
+        "target_contract_version": {"enum": ["0.2.0", "0.3.0"]},
         "ref_type": {"enum": ["source", "evidence", "claim"]},
         "purpose": {"const": "seed_current_research"},
         "access": {"const": "read_only"},

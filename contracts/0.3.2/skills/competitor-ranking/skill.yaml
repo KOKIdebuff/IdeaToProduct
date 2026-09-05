@@ -1,0 +1,36 @@
+skill:
+  id: competitor-ranking
+  version: 0.3.2
+  type: analysis
+inputs:
+  required: [competitor_candidates, research_contract]
+  optional: [source_index]
+reads:
+  - artifacts/01-contract/research-contract.yaml
+  - artifacts/02-research/competitors/candidates.json
+  - artifacts/02-research/source-index.json
+writes:
+  - artifacts/02-research/competitors/ranking.yaml
+output_contracts:
+  - artifact_type: competitor_ranking
+    write: artifacts/02-research/competitors/ranking.yaml
+    schema_ref: schemas/competitor.schema.json#/$defs/competitor_ranking
+    template_ref: null
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/02-research/competitors/ranking.yaml
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 0
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [competitor_ranking]
+  selection_methodology_required: true
+  excluded_candidate_reasons_required: true
+on_failure: []

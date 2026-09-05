@@ -6,10 +6,13 @@ SPEC v0.1. It never fetches remote schemas and never mutates repository files.
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sys
-from dataclasses import dataclass
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass, replace
+from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
 from urllib.parse import unquote, urlparse
@@ -22,7 +25,10 @@ from referencing import Registry, Resource
 try:
     from skillgraph_runtime.bundles import (
         BundleContext,
+        CompatibilityRule,
+        ContractBundle,
         ContractResolutionError,
+        VersionEntry,
         VersionRegistry,
         evaluate_legacy_input_ref,
         load_bundle_context,
@@ -33,7 +39,10 @@ try:
 except ModuleNotFoundError:  # direct ``python scripts/validate_contracts.py`` before editable install
     from contract_bundles import (  # type: ignore[no-redef]
         BundleContext,
+        CompatibilityRule,
+        ContractBundle,
         ContractResolutionError,
+        VersionEntry,
         VersionRegistry,
         evaluate_legacy_input_ref,
         load_bundle_context,
@@ -49,6 +58,15 @@ PROFILE_DIR = ROOT / "profiles"
 FIXTURE_MANIFEST = ROOT / "fixtures" / "contracts" / "manifest.json"
 MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
 CONTRACT_VERSION = "0.1.0"
+
+# These Contract Bundles are deliberately validated without being registered for
+# Runtime resolution.  A staged Bundle is declarative-only: it must be locally
+# complete and fail closed, but it must not become selectable for new, resumed,
+# or audited Runs until a separate promotion task changes the Registry.
+STAGED_STATIC_BUNDLE_ROOTS = {
+    "0.3.1": "contracts/0.3.1",
+    "0.3.2": "contracts/0.3.2",
+}
 
 REQUIRED_SCHEMA_NAMES = frozenset({
     "artifact-manifest.schema.json",
@@ -108,6 +126,38 @@ REQUIRED_TEMPLATE_CONTRACTS = {
     "templates/feasibility.md": "feasibility_review",
     "templates/prd.md": "prd",
 }
+V03_TEMPLATE_CONTRACTS = {
+    "templates/competitor-report.html": "competitor_report",
+    "templates/synthesis.md": "research_synthesis",
+    "templates/product-definition.md": "product_definition",
+    "templates/feasibility.md": "feasibility_review",
+    "templates/prd.md": "prd",
+}
+
+
+def template_contracts_for_version(contract_version: str) -> Mapping[str, str]:
+    """Return the closed template inventory for one Contract Bundle."""
+    return V03_TEMPLATE_CONTRACTS if contract_version in {"0.3.0", "0.3.1", "0.3.2"} else REQUIRED_TEMPLATE_CONTRACTS
+
+
+V031_EXTRA_SKILL_IDS = frozenset({
+    "competitor-fact-provenance",
+    "competitor-scoring",
+    "competitor-score-verifier",
+})
+
+V032_EXTRA_SKILL_IDS = frozenset({
+    *V031_EXTRA_SKILL_IDS,
+    "competitor-chart-rendering",
+    "report-publication-projection",
+    "competitor-report-builder",
+}) - frozenset({"competitor-visualization"})
+
+
+def required_skill_ids_for_version(contract_version: str) -> frozenset[str]:
+    if contract_version == "0.3.2":
+        return (REQUIRED_SKILL_IDS - frozenset({"competitor-visualization"})) | V032_EXTRA_SKILL_IDS
+    return REQUIRED_SKILL_IDS | V031_EXTRA_SKILL_IDS if contract_version == "0.3.1" else REQUIRED_SKILL_IDS
 SKILL_MARKDOWN_SECTIONS = (
     "Purpose",
     "Trigger",
@@ -165,6 +215,25 @@ COMPETITOR_SUBGRAPH_NODE_CONTRACTS: dict[str, tuple[str, str]] = {
     "visualization": ("skill", "competitor-visualization"),
     "competitor_verifier": ("verifier", "competitor-verifier"),
 }
+V031_COMPETITOR_SUBGRAPH_NODE_CONTRACTS: dict[str, tuple[str, str]] = {
+    **COMPETITOR_SUBGRAPH_NODE_CONTRACTS,
+    "fact_provenance": ("skill", "competitor-fact-provenance"),
+    "scoring": ("skill", "competitor-scoring"),
+    "score_verifier": ("verifier", "competitor-score-verifier"),
+}
+
+V032_COMPETITOR_SUBGRAPH_NODE_CONTRACTS: dict[str, tuple[str, str]] = {
+    **{node_id: contract for node_id, contract in V031_COMPETITOR_SUBGRAPH_NODE_CONTRACTS.items() if node_id != "visualization"},
+    "chart_rendering": ("skill", "competitor-chart-rendering"),
+    "report_publication_projection": ("skill", "report-publication-projection"),
+    "report_builder": ("skill", "competitor-report-builder"),
+}
+
+
+def competitor_subgraph_nodes_for_version(contract_version: str) -> Mapping[str, tuple[str, str]]:
+    if contract_version == "0.3.2":
+        return V032_COMPETITOR_SUBGRAPH_NODE_CONTRACTS
+    return V031_COMPETITOR_SUBGRAPH_NODE_CONTRACTS if contract_version == "0.3.1" else COMPETITOR_SUBGRAPH_NODE_CONTRACTS
 RESEARCH_BRANCHES = {"competitor", "users", "market", "technology"}
 RESULT_FIELDS = {
     "node_status",
@@ -202,6 +271,37 @@ PROFILE_EXPECTATIONS = {
     },
 }
 
+V031_RUBRIC_PATHS = {
+    "developer_tool": "rubrics/developer-tool-scoring.yaml",
+    "ai_agent_product": "rubrics/ai-agent-product-scoring.yaml",
+    "consumer_app": "rubrics/consumer-app-scoring.yaml",
+    "b2b_saas": "rubrics/b2b-saas-scoring.yaml",
+}
+V031_RUBRIC_DIMENSIONS = {
+    "developer_tool": {"workflow_fit", "developer_experience", "extensibility_integration", "ai_capability", "ecosystem_maturity"},
+    "ai_agent_product": {"agent_capability", "reliability_observability", "tool_model_integration", "cost_performance", "ecosystem_momentum"},
+    "consumer_app": {"user_experience", "differentiation", "engagement_retention_signal", "trust_safety", "value_monetization"},
+    "b2b_saas": {"workflow_fit", "integration_maturity", "security_compliance", "commercial_fit", "differentiation"},
+}
+V031_CHART_TEMPLATES = {
+    "feature_matrix": ("matrix", "competitor_by_dimension_cells"),
+    "feature_ux_matrix": ("matrix", "competitor_by_dimension_cells"),
+    "capability_matrix": ("matrix", "competitor_by_dimension_cells"),
+    "integration_security_coverage": ("matrix", "competitor_by_dimension_cells"),
+    "positioning_map": ("scatter", "competitor_xy_points"),
+    "momentum_comparison": ("bar", "category_values"),
+    "ecosystem_momentum": ("bar", "category_values"),
+    "cost_performance": ("bar", "category_values"),
+    "pricing_comparison": ("bar", "category_values"),
+    "oss_activity": ("line", "time_series_values"),
+    "sentiment_distribution": ("distribution", "bucket_counts"),
+}
+
+
+def auxiliary_contract_check_count(contract_version: str) -> int:
+    """Return the deterministic count of non-schema staged Contract checks."""
+    return 5 if contract_version in {"0.3.1", "0.3.2"} else 0
+
 
 @dataclass(frozen=True)
 class Diagnostic:
@@ -222,6 +322,8 @@ class RepositoryCatalog:
     skill_ids: frozenset[str]
     subgraph_ids: frozenset[str]
     template_paths: frozenset[str]
+    rubric_paths: frozenset[str]
+    chart_template_paths: frozenset[str]
 
 
 class DuplicateKeyError(ValueError):
@@ -329,7 +431,20 @@ def build_repository_catalog(root: Path = ROOT) -> RepositoryCatalog:
         skill_ids=frozenset(path.name for path in skill_dir.iterdir() if path.is_dir()) if skill_dir.is_dir() else frozenset(),
         subgraph_ids=frozenset(path.stem for path in subgraph_dir.glob("*.yaml") if path.is_file()),
         template_paths=frozenset(
-            path.relative_to(root).as_posix() for path in template_dir.glob("*.md") if path.is_file()
+            path.relative_to(root).as_posix()
+            for pattern in ("*.md", "*.html")
+            for path in template_dir.glob(pattern)
+            if path.is_file()
+        ),
+        rubric_paths=frozenset(
+            path.relative_to(root).as_posix()
+            for path in (root / "rubrics").glob("*.yaml")
+            if path.is_file()
+        ),
+        chart_template_paths=frozenset(
+            path.relative_to(root).as_posix()
+            for path in (root / "chart-templates").glob("*.yaml")
+            if path.is_file()
         ),
     )
 
@@ -358,11 +473,39 @@ def repository_inventory_diagnostics(
 ) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     diagnostics.extend(_inventory_difference_diagnostics(catalog.schema_names, REQUIRED_SCHEMA_NAMES, "schemas", "schemas", contract_version))
-    diagnostics.extend(_inventory_difference_diagnostics(catalog.skill_ids, REQUIRED_SKILL_IDS, "skills", "skills", contract_version))
+    required_skill_ids = required_skill_ids_for_version(contract_version)
+    diagnostics.extend(_inventory_difference_diagnostics(catalog.skill_ids, required_skill_ids, "skills", "skills", contract_version))
     diagnostics.extend(_inventory_difference_diagnostics(catalog.subgraph_ids, REQUIRED_SUBGRAPH_IDS, "subgraphs", "subgraphs", contract_version))
-    diagnostics.extend(_inventory_difference_diagnostics(catalog.template_paths, frozenset(REQUIRED_TEMPLATE_CONTRACTS), "templates", "templates", contract_version))
+    diagnostics.extend(_inventory_difference_diagnostics(
+        catalog.template_paths,
+        frozenset(template_contracts_for_version(contract_version)),
+        "templates",
+        "templates",
+        contract_version,
+    ))
 
-    for skill_id in sorted(REQUIRED_SKILL_IDS & catalog.skill_ids):
+    if contract_version in {"0.3.1", "0.3.2"}:
+        diagnostics.extend(_inventory_difference_diagnostics(
+            catalog.rubric_paths,
+            frozenset({
+                "rubrics/developer-tool-scoring.yaml",
+                "rubrics/ai-agent-product-scoring.yaml",
+                "rubrics/consumer-app-scoring.yaml",
+                "rubrics/b2b-saas-scoring.yaml",
+            }),
+            "rubrics",
+            "rubrics",
+            contract_version,
+        ))
+        diagnostics.extend(_inventory_difference_diagnostics(
+            catalog.chart_template_paths,
+            frozenset({"chart-templates/registry.yaml"}),
+            "chart-templates",
+            "chart template registries",
+            contract_version,
+        ))
+
+    for skill_id in sorted(required_skill_ids & catalog.skill_ids):
         for filename in ("SKILL.md", "skill.yaml"):
             path = catalog.root / "skills" / skill_id / filename
             source = path.relative_to(catalog.root).as_posix()
@@ -372,13 +515,16 @@ def repository_inventory_diagnostics(
     expected_paths = [
         *(catalog.root / "schemas" / name for name in REQUIRED_SCHEMA_NAMES & catalog.schema_names),
         *(catalog.root / "subgraphs" / f"{name}.yaml" for name in REQUIRED_SUBGRAPH_IDS & catalog.subgraph_ids),
-        *(catalog.root / path for path in set(REQUIRED_TEMPLATE_CONTRACTS) & catalog.template_paths),
+        *(catalog.root / path for path in set(template_contracts_for_version(contract_version)) & catalog.template_paths),
     ]
-    for skill_id in REQUIRED_SKILL_IDS & catalog.skill_ids:
+    for skill_id in required_skill_ids & catalog.skill_ids:
         expected_paths.extend([
             catalog.root / "skills" / skill_id / "skill.yaml",
             catalog.root / "skills" / skill_id / "SKILL.md",
         ])
+    if contract_version in {"0.3.1", "0.3.2"}:
+        expected_paths.extend(catalog.root / path for path in catalog.rubric_paths)
+        expected_paths.extend(catalog.root / path for path in catalog.chart_template_paths)
     for path in expected_paths:
         if path.exists() and (_contains_symlink(path, catalog.root) or not _is_within(path, catalog.root)):
             diagnostics.append(Diagnostic(_display_path(path), "$", "unsafe_contract_path", "Contract assets may not use symbolic links or escape the repository"))
@@ -587,10 +733,33 @@ def validate_instance(
     schemas: dict[str, dict[str, Any]],
     registry: Registry,
 ) -> list[Diagnostic]:
-    schema = schemas.get(schema_name)
-    if schema is None:
+    parsed = urlparse(schema_name) if isinstance(schema_name, str) else None
+    if (
+        parsed is None
+        or parsed.scheme
+        or parsed.netloc
+        or parsed.params
+        or parsed.query
+        or not parsed.path
+        or len(PurePosixPath(parsed.path.replace("\\", "/")).parts) != 1
+    ):
         return [Diagnostic(source, "$", "missing_schema", f"Schema not found: {schema_name}")]
-    validator = Draft202012Validator(schema, registry=registry, format_checker=FormatChecker())
+    base_name = PurePosixPath(parsed.path.replace("\\", "/")).name
+    fragment = f"#{parsed.fragment}" if parsed.fragment else ""
+    if fragment and not fragment.startswith("#/"):
+        return [Diagnostic(source, "$", "missing_schema", f"Schema not found: {schema_name}")]
+    schema = schemas.get(base_name)
+    if schema is None or _pointer_value(schema, fragment) is None:
+        return [Diagnostic(source, "$", "missing_schema", f"Schema not found: {schema_name}")]
+    schema_id = schema.get("$id")
+    target: dict[str, Any]
+    if fragment:
+        if not isinstance(schema_id, str):
+            return [Diagnostic(source, "$", "missing_schema", f"Schema not found: {schema_name}")]
+        target = {"$ref": f"{schema_id}{fragment}"}
+    else:
+        target = schema
+    validator = Draft202012Validator(target, registry=registry, format_checker=FormatChecker())
     return [
         Diagnostic(source, _json_path(error.absolute_path), str(error.validator or "schema"), error.message)
         for error in sorted(validator.iter_errors(instance), key=lambda item: list(item.absolute_path))
@@ -788,10 +957,11 @@ def subgraph_semantics(
     diagnostics.extend(graph_semantics(nodes, source, cycle_rule="subgraph_dag_cycle"))
 
     if subgraph_id == "competitor-research":
-        missing = sorted(set(COMPETITOR_SUBGRAPH_NODE_CONTRACTS) - set(nodes))
+        expected_nodes = competitor_subgraph_nodes_for_version(contract_version)
+        missing = sorted(set(expected_nodes) - set(nodes))
         if missing:
             diagnostics.append(Diagnostic(source, "$.nodes", "missing_subgraph_nodes", f"Missing competitor subgraph nodes: {', '.join(missing)}"))
-        for node_id, (expected_kind, expected_skill) in COMPETITOR_SUBGRAPH_NODE_CONTRACTS.items():
+        for node_id, (expected_kind, expected_skill) in expected_nodes.items():
             node = nodes.get(node_id)
             if not isinstance(node, dict):
                 continue
@@ -817,8 +987,11 @@ def subgraph_semantics(
         if isinstance(dependency, str)
     }
     terminal_nodes = sorted(set(nodes) - dependency_targets)
-    if subgraph_id == "competitor-research" and terminal_nodes != ["competitor_verifier"]:
-        diagnostics.append(Diagnostic(source, "$.nodes", "subgraph_terminal", "competitor_verifier must be the unique terminal node"))
+    if subgraph_id == "competitor-research":
+        expected_terminals = ["competitor_verifier", "score_verifier"] if contract_version in {"0.3.1", "0.3.2"} else ["competitor_verifier"]
+        if terminal_nodes != expected_terminals:
+            expectation = " and ".join(expected_terminals)
+            diagnostics.append(Diagnostic(source, "$.nodes", "subgraph_terminal", f"Competitor Research terminal nodes must be exactly {expectation}"))
 
     for index, output in enumerate(document.get("output_contracts", [])):
         if not isinstance(output, dict):
@@ -906,6 +1079,126 @@ def profile_semantics(
     return diagnostics
 
 
+def v031_auxiliary_contract_diagnostics(
+    catalog: RepositoryCatalog,
+    *,
+    contract_version: str = "0.3.1",
+) -> list[Diagnostic]:
+    """Validate Bundle-local Rubrics and the closed native Chart Registry."""
+    diagnostics: list[Diagnostic] = []
+    profile_documents: dict[str, dict[str, Any]] = {}
+
+    for profile_id, expected_rubric_ref in V031_RUBRIC_PATHS.items():
+        profile_path = catalog.root / "profiles" / f"{profile_id.replace('_', '-')}.yaml"
+        source = profile_path.relative_to(catalog.root).as_posix()
+        try:
+            profile = load_document(profile_path)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+            diagnostics.append(Diagnostic(source, "$", "contract_load", str(exc)))
+            continue
+        if not isinstance(profile, dict):
+            diagnostics.append(Diagnostic(source, "$", "contract_type", "Profile Contract must be an object"))
+            continue
+        profile_documents[profile_id] = profile
+        if profile.get("scoring_rubric_ref") != expected_rubric_ref:
+            diagnostics.append(Diagnostic(source, "$.scoring_rubric_ref", "scoring_rubric_reference", f"Profile {profile_id} must reference {expected_rubric_ref}"))
+
+        rubric_path = catalog.root / expected_rubric_ref
+        rubric_source = rubric_path.relative_to(catalog.root).as_posix()
+        try:
+            rubric_document = load_document(rubric_path)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+            diagnostics.append(Diagnostic(rubric_source, "$", "contract_load", str(exc)))
+            continue
+        if not isinstance(rubric_document, dict):
+            diagnostics.append(Diagnostic(rubric_source, "$", "contract_type", "Scoring Rubric must be an object"))
+            continue
+
+        rubric = rubric_document.get("rubric")
+        dimensions = rubric_document.get("dimensions")
+        bands = rubric_document.get("score_bands")
+        expected_ref = f"{profile_id}@{contract_version}"
+        valid_header = (
+            isinstance(rubric, dict)
+            and rubric.get("id") == f"{profile_id}_scoring"
+            and rubric.get("version") == "1.0.0"
+            and rubric.get("profile_ref") == expected_ref
+            and rubric.get("integer_only") is True
+            and rubric.get("minimum") == 1
+            and rubric.get("maximum") == 10
+            and rubric.get("aggregation") == "weighted_arithmetic_mean"
+            and rubric.get("minimum_weight_coverage") == 0.8
+            and rubric.get("missing_evidence") == "renormalize_available_weights_partial"
+            and rubric.get("tie_break") == "evidence_coverage_then_shared_rank"
+            and isinstance(rubric.get("changelog"), list)
+            and bool(rubric["changelog"])
+        )
+        if not valid_header:
+            diagnostics.append(Diagnostic(rubric_source, "$.rubric", "scoring_rubric_contract", "Rubric header must lock the approved staged scoring policy"))
+
+        if not isinstance(dimensions, list) or len(dimensions) != 5:
+            diagnostics.append(Diagnostic(rubric_source, "$.dimensions", "scoring_rubric_contract", "Rubric must define exactly five dimensions"))
+        else:
+            dimension_ids = {item.get("id") for item in dimensions if isinstance(item, dict)}
+            weights = [item.get("weight") for item in dimensions if isinstance(item, dict)]
+            if (
+                len(dimension_ids) != 5
+                or dimension_ids != V031_RUBRIC_DIMENSIONS[profile_id]
+                or len(weights) != 5
+                or any(weight != 0.2 for weight in weights)
+                or sum(weights) != 1.0
+            ):
+                diagnostics.append(Diagnostic(rubric_source, "$.dimensions", "scoring_rubric_contract", "Rubric dimensions must match the approved equal-weight Profile catalog"))
+
+        expected_bands = [(1, 2), (3, 4), (5, 6), (7, 8), (9, 10)]
+        actual_bands = [
+            (item.get("minimum"), item.get("maximum"))
+            for item in bands
+            if isinstance(item, dict)
+        ] if isinstance(bands, list) else []
+        if actual_bands != expected_bands:
+            diagnostics.append(Diagnostic(rubric_source, "$.score_bands", "scoring_rubric_contract", "Rubric score bands must cover the approved integer 1..10 range"))
+
+    registry_path = catalog.root / "chart-templates" / "registry.yaml"
+    registry_source = registry_path.relative_to(catalog.root).as_posix()
+    try:
+        registry_document = load_document(registry_path)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+        diagnostics.append(Diagnostic(registry_source, "$", "contract_load", str(exc)))
+        return diagnostics
+    if not isinstance(registry_document, dict):
+        diagnostics.append(Diagnostic(registry_source, "$", "contract_type", "Chart Template Registry must be an object"))
+        return diagnostics
+    templates = registry_document.get("templates")
+    if registry_document.get("contract_version") != contract_version or not isinstance(templates, dict):
+        diagnostics.append(Diagnostic(registry_source, "$", "chart_template_registry", "Chart Template Registry must be versioned and contain templates"))
+        return diagnostics
+    if set(templates) != set(V031_CHART_TEMPLATES):
+        diagnostics.append(Diagnostic(registry_source, "$.templates", "chart_template_registry", "Chart Template Registry must be closed to the approved chart IDs"))
+    for chart_id, expected in V031_CHART_TEMPLATES.items():
+        actual = templates.get(chart_id)
+        if not isinstance(actual, dict) or (actual.get("renderer_kind"), actual.get("data_contract")) != expected:
+            diagnostics.append(Diagnostic(registry_source, f"$.templates.{chart_id}", "chart_template_registry", "Chart template must preserve its registered renderer and data contract"))
+
+    registered_chart_ids = set(templates) if isinstance(templates, dict) else set()
+    for profile_id, profile in profile_documents.items():
+        visualizations = profile.get("competitor_visualizations", {})
+        required = visualizations.get("required", []) if isinstance(visualizations, dict) else []
+        choose_one = visualizations.get("choose_one", {}) if isinstance(visualizations, dict) else {}
+        optional = choose_one.get("options", []) if isinstance(choose_one, dict) else []
+        declared = set(required) | set(optional) if isinstance(required, list) and isinstance(optional, list) else set()
+        if not declared or not declared <= registered_chart_ids:
+            diagnostics.append(Diagnostic(f"profiles/{profile_id.replace('_', '-')}.yaml", "$.competitor_visualizations", "chart_template_registry", "Every Profile visualization must exist in the closed Chart Template Registry"))
+
+    svg_contract = registry_document.get("svg_contract")
+    png_compatibility = registry_document.get("png_compatibility")
+    if not isinstance(svg_contract, dict) or svg_contract.get("required_attributes") != ["viewBox", "role"] or svg_contract.get("required_elements") != ["title", "desc"] or svg_contract.get("external_references") != "forbidden" or svg_contract.get("network_dependency") != "forbidden":
+        diagnostics.append(Diagnostic(registry_source, "$.svg_contract", "chart_template_registry", "SVG Contract must preserve the approved static, local, accessible constraints"))
+    if not isinstance(png_compatibility, dict) or png_compatibility.get("canonical") is not False or png_compatibility.get("explicit_request_only") is not True or png_compatibility.get("failure_after_valid_svg") != "PARTIAL" or png_compatibility.get("svg_fallback") != "forbidden":
+        diagnostics.append(Diagnostic(registry_source, "$.png_compatibility", "chart_template_registry", "PNG compatibility must remain optional PARTIAL output and never replace SVG"))
+    return diagnostics
+
+
 def _is_safe_relative_path(value: str) -> bool:
     if not isinstance(value, str) or not value or value.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", value):
         return False
@@ -958,6 +1251,153 @@ def skill_markdown_diagnostics(
     return diagnostics
 
 
+class _StaticHtmlTemplateParser(HTMLParser):
+    """Collect the small, security-relevant HTML surface of a report template."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.tags: list[str] = []
+        self.meta_values: dict[str, list[str]] = {}
+        self.asset_references: list[tuple[str, str, str]] = []
+        self.style_chunks: list[str] = []
+        self.event_attributes: list[tuple[str, str]] = []
+        self.has_doctype = False
+        self.has_script = False
+        self.has_base = False
+        self.has_refresh = False
+        self._style_depth = 0
+
+    def handle_decl(self, decl: str) -> None:
+        if decl.strip().lower() == "doctype html":
+            self.has_doctype = True
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        normalized_tag = tag.lower()
+        self.tags.append(normalized_tag)
+        attributes = {name.lower(): value for name, value in attrs}
+        if normalized_tag == "script":
+            self.has_script = True
+        if normalized_tag == "base":
+            self.has_base = True
+        if normalized_tag == "style":
+            self._style_depth += 1
+        if normalized_tag == "meta":
+            name = attributes.get("name")
+            content = attributes.get("content")
+            if isinstance(name, str) and isinstance(content, str):
+                self.meta_values.setdefault(name.lower(), []).append(content)
+            if str(attributes.get("http-equiv", "")).lower() == "refresh":
+                self.has_refresh = True
+        for name, value in attrs:
+            normalized_name = name.lower()
+            if normalized_name.startswith("on"):
+                self.event_attributes.append((normalized_tag, normalized_name))
+            if normalized_name == "style" and isinstance(value, str):
+                self.style_chunks.append(value)
+        for attribute in ("href", "src", "srcset", "poster", "action", "formaction"):
+            value = attributes.get(attribute)
+            if isinstance(value, str):
+                self.asset_references.append((normalized_tag, attribute, value))
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+        self.handle_endtag(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "style" and self._style_depth:
+            self._style_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._style_depth:
+            self.style_chunks.append(data)
+
+
+def _is_safe_static_asset_reference(value: str, *, allow_anchor: bool = False) -> bool:
+    if not isinstance(value, str) or not value or value.strip() != value:
+        return False
+    if allow_anchor and value.startswith("#"):
+        return len(value) > 1
+    parsed = urlparse(value)
+    if parsed.scheme or parsed.netloc or parsed.query or value.startswith("//"):
+        return False
+    local_path = parsed.path
+    return bool(local_path) and _is_safe_relative_path(local_path)
+
+
+def _is_safe_passive_citation_reference(value: str) -> bool:
+    """Allow a static source link without allowing it to become a loaded asset."""
+    if not isinstance(value, str) or not value or value.strip() != value:
+        return False
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def _html_template_contract_diagnostics(
+    text: str,
+    source: str,
+    expected_artifact_type: str,
+    *,
+    contract_version: str,
+) -> list[Diagnostic]:
+    diagnostics: list[Diagnostic] = []
+    parser = _StaticHtmlTemplateParser()
+    try:
+        parser.feed(text)
+        parser.close()
+    except (ValueError, TypeError) as exc:
+        return [Diagnostic(source, "$", "template_contract", f"Invalid HTML template: {exc}")]
+    if not parser.has_doctype or not {"html", "head", "body"}.issubset(parser.tags):
+        diagnostics.append(Diagnostic(source, "$", "template_contract", "HTML template must contain <!doctype html>, <html>, <head>, and <body>"))
+
+    expected = {
+        "template-id": Path(source).stem,
+        "template-version": contract_version,
+        "artifact-type": expected_artifact_type,
+    }
+    actual = {name: values for name, values in parser.meta_values.items() if name in expected}
+    if any(actual.get(name) != [value] for name, value in expected.items()):
+        diagnostics.append(Diagnostic(source, "$.head.meta", "template_contract", f"Expected HTML identity metadata {expected}; found {actual}"))
+    if parser.has_script:
+        diagnostics.append(Diagnostic(source, "$.script", "static_html", "HTML competitor report templates must not contain script tags"))
+    if parser.has_base:
+        diagnostics.append(Diagnostic(source, "$.base", "static_html", "HTML competitor report templates must not contain a base URL"))
+    if parser.has_refresh:
+        diagnostics.append(Diagnostic(source, "$.meta.http-equiv", "static_html", "HTML competitor report templates must not refresh or navigate"))
+    for tag, attribute in parser.event_attributes:
+        diagnostics.append(Diagnostic(source, f"$.{tag}.{attribute}", "static_html", "HTML competitor report templates must not contain event-handler JavaScript"))
+
+    for tag, attribute, value in parser.asset_references:
+        values = value.split(",") if attribute == "srcset" else [value]
+        for item in values:
+            candidate = item.strip().split(maxsplit=1)[0]
+            if tag == "a" and attribute == "href" and _is_safe_passive_citation_reference(candidate):
+                continue
+            if not _is_safe_static_asset_reference(candidate, allow_anchor=attribute == "href"):
+                diagnostics.append(Diagnostic(
+                    source,
+                    f"$.{tag}.{attribute}",
+                    "static_html_asset",
+                    f"HTML report asset reference must be a safe local relative path: {value}",
+                ))
+
+    style_text = "\n".join(parser.style_chunks)
+    css_references = [
+        *re.findall(r"url\(\s*['\"]?([^'\")\s]+)", style_text, flags=re.IGNORECASE),
+        *re.findall(r"@import\s+(?:url\(\s*)?['\"]?([^'\"\)\s;]+)", style_text, flags=re.IGNORECASE),
+    ]
+    for value in css_references:
+        if not _is_safe_static_asset_reference(value):
+            diagnostics.append(Diagnostic(
+                source,
+                "$.style",
+                "static_html_asset",
+                f"HTML report stylesheet reference must be a safe local relative path: {value}",
+            ))
+    if re.search(r"(?:expression\s*\(|behavior\s*:)", style_text, flags=re.IGNORECASE):
+        diagnostics.append(Diagnostic(source, "$.style", "static_html", "HTML report styles must not contain executable behavior"))
+    return diagnostics
+
+
 def template_contract_diagnostics(
     text: str,
     source: str,
@@ -965,6 +1405,13 @@ def template_contract_diagnostics(
     *,
     contract_version: str = CONTRACT_VERSION,
 ) -> list[Diagnostic]:
+    if Path(source).suffix.lower() == ".html":
+        return _html_template_contract_diagnostics(
+            text,
+            source,
+            expected_artifact_type,
+            contract_version=contract_version,
+        )
     diagnostics: list[Diagnostic] = []
     match = re.match(r"\A---\s*\r?\n(.*?)\r?\n---\s*(?:\r?\n|\Z)", text, flags=re.DOTALL)
     if match is None:
@@ -1011,10 +1458,10 @@ def skill_contract_diagnostics(
         diagnostics.append(Diagnostic(source, "$.skill.version", "contract_version", f"Skill version must be {contract_version}"))
 
     interaction = document.get("interaction")
-    if contract_version == "0.2.0" and expected_id == "idea-intake" and not isinstance(interaction, dict):
-        diagnostics.append(Diagnostic(source, "$.interaction", "interaction_contract", "v0.2 idea-intake must declare the adaptive Interaction Model"))
+    if contract_version != "0.1.0" and expected_id == "idea-intake" and not isinstance(interaction, dict):
+        diagnostics.append(Diagnostic(source, "$.interaction", "interaction_contract", "v0.2+ idea-intake must declare the adaptive Interaction Model"))
     if isinstance(interaction, dict) and expected_id != "idea-intake":
-        diagnostics.append(Diagnostic(source, "$.interaction", "interaction_contract", "Only idea-intake may declare an Interaction Model in v0.2"))
+        diagnostics.append(Diagnostic(source, "$.interaction", "interaction_contract", "Only idea-intake may declare an Interaction Model in v0.2+"))
 
     writes = document.get("writes", [])
     output_contracts = document.get("output_contracts", [])
@@ -1040,7 +1487,7 @@ def skill_contract_diagnostics(
             schema_name, fragment = resolved
             template_ref = output.get("template_ref")
             if schema_ref == "schemas/artifact.schema.json" and isinstance(template_ref, str):
-                expected_template_type = REQUIRED_TEMPLATE_CONTRACTS.get(template_ref)
+                expected_template_type = template_contracts_for_version(contract_version).get(template_ref)
                 if artifact_type != expected_template_type:
                     diagnostics.append(Diagnostic(source, f"{base_path}.artifact_type", "output_artifact_type", f"Artifact type {artifact_type} does not match Template contract {expected_template_type}"))
             else:
@@ -1258,24 +1705,165 @@ def reference_integrity(
     return diagnostics
 
 
-def _collect_ids(cases: list[dict[str, Any]]) -> tuple[set[str], set[str], set[str], set[str]]:
+def citation_closure_diagnostics(
+    projection: dict[str, Any],
+    source: str,
+    source_records: Mapping[str, dict[str, Any]],
+) -> list[Diagnostic]:
+    """Validate the minimum local Citation Closure required by a Projection."""
+    diagnostics: list[Diagnostic] = []
+    closure = projection.get("citation_closure")
+    fact_groups = projection.get("fact_groups")
+    if not isinstance(closure, dict) or not isinstance(fact_groups, list):
+        return diagnostics
+
+    fact_claim_ids: set[str] = set()
+    fact_evidence_ids: set[str] = set()
+    fact_source_ids: set[str] = set()
+    for group_index, group in enumerate(fact_groups):
+        if not isinstance(group, dict):
+            continue
+        citation_ids = group.get("citation_source_ids", [])
+        if isinstance(citation_ids, list):
+            fact_source_ids.update(item for item in citation_ids if isinstance(item, str))
+        facts = group.get("facts", [])
+        if not isinstance(facts, list):
+            continue
+        for fact_index, fact in enumerate(facts):
+            if not isinstance(fact, dict):
+                continue
+            for field, destination in (
+                ("claim_refs", fact_claim_ids),
+                ("evidence_refs", fact_evidence_ids),
+                ("source_refs", fact_source_ids),
+            ):
+                values = fact.get(field, [])
+                if isinstance(values, list):
+                    destination.update(item for item in values if isinstance(item, str))
+            if not isinstance(fact.get("origin_field_pointer"), str) or not fact["origin_field_pointer"].startswith("/"):
+                diagnostics.append(Diagnostic(source, f"$.fact_groups[{group_index}].facts[{fact_index}].origin_field_pointer", "citation_closure", "Fact bindings must retain an origin JSON Pointer"))
+
+    closure_sets = {
+        "claim_ids": {item for item in closure.get("claim_ids", []) if isinstance(item, str)},
+        "evidence_ids": {item for item in closure.get("evidence_ids", []) if isinstance(item, str)},
+        "source_ids": {item for item in closure.get("source_ids", []) if isinstance(item, str)},
+    }
+    fact_sets = {
+        "claim_ids": fact_claim_ids,
+        "evidence_ids": fact_evidence_ids,
+        "source_ids": fact_source_ids,
+    }
+    for field, expected in fact_sets.items():
+        if closure_sets[field] != expected:
+            diagnostics.append(Diagnostic(source, f"$.citation_closure.{field}", "citation_closure", "Citation Closure must contain exactly the referenced Fact bindings"))
+
+    for source_id in closure_sets["source_ids"]:
+        source_record = source_records.get(source_id)
+        if source_record is None:
+            diagnostics.append(Diagnostic(source, "$.citation_closure.source_ids", "unresolved_source", f"Citation Source is not present in the validated fixture set: {source_id}"))
+            continue
+        canonical_url = source_record.get("canonical_url")
+        parsed_url = urlparse(canonical_url) if isinstance(canonical_url, str) else None
+        if not isinstance(canonical_url, str) or parsed_url is None or parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+            diagnostics.append(Diagnostic(source, "$.citation_closure.source_ids", "citation_metadata", f"Citation Source {source_id} must have a canonical HTTP(S) URL"))
+        for field in ("publisher", "title", "excerpt_or_summary"):
+            if not isinstance(source_record.get(field), str) or not source_record[field].strip():
+                diagnostics.append(Diagnostic(source, "$.citation_closure.source_ids", "citation_metadata", f"Citation Source {source_id} must provide {field}"))
+        metadata = source_record.get("citation_metadata")
+        if not isinstance(metadata, dict):
+            diagnostics.append(Diagnostic(source, "$.citation_closure.source_ids", "citation_metadata", f"Citation Source {source_id} must provide citation_metadata"))
+            continue
+        for field in ("publisher_short_name", "excerpt"):
+            if not isinstance(metadata.get(field), str) or not metadata[field].strip():
+                diagnostics.append(Diagnostic(source, "$.citation_closure.source_ids", "citation_metadata", f"Citation Source {source_id} metadata must provide {field}"))
+        favicon_ref = metadata.get("local_favicon_ref")
+        if favicon_ref is not None and (not isinstance(favicon_ref, str) or not _is_safe_relative_path(favicon_ref)):
+            diagnostics.append(Diagnostic(source, "$.citation_closure.source_ids", "citation_metadata", f"Citation Source {source_id} favicon must be a safe local reference or null"))
+    return diagnostics
+
+
+def chart_template_diagnostics(
+    chart_spec: dict[str, Any],
+    source: str,
+    catalog: RepositoryCatalog | None,
+) -> list[Diagnostic]:
+    """Validate one Chart Spec against the v0.3.1 closed Template Registry."""
+    if catalog is None:
+        return []
+    chart_id = chart_spec.get("chart_id")
+    expected = V031_CHART_TEMPLATES.get(chart_id)
+    if expected is None:
+        return [Diagnostic(source, "$.chart_id", "chart_template_mismatch", "Chart Spec must select a registered v0.3.1 chart template")]
+    actual = (chart_spec.get("renderer_kind"), chart_spec.get("data_contract"))
+    if actual != expected:
+        return [Diagnostic(source, "$", "chart_template_mismatch", "Chart Spec renderer_kind and data_contract must match the selected Template Registry entry")]
+    return []
+
+
+def chart_data_diagnostics(
+    chart_data: dict[str, Any],
+    chart_spec: dict[str, Any],
+    source: str,
+) -> list[Diagnostic]:
+    """Require Chart Data to use exactly the data contract selected by its Spec."""
+    if chart_data.get("data_contract") != chart_spec.get("data_contract"):
+        return [Diagnostic(source, "$.data_contract", "chart_template_mismatch", "Chart Data contract must match the selected Chart Spec")]
+    return []
+
+
+def svg_static_diagnostics(document: dict[str, Any], source: str) -> list[Diagnostic]:
+    """Enforce the native SVG-first static safety and accessibility minimum."""
+    svg = document.get("svg")
+    if not isinstance(svg, str):
+        return [Diagnostic(source, "$.svg", "unsafe_svg", "SVG fixture must contain a string SVG document")]
+    try:
+        root = ET.fromstring(svg)
+    except ET.ParseError as exc:
+        return [Diagnostic(source, "$.svg", "unsafe_svg", f"SVG fixture is malformed: {exc}")]
+    local_name = lambda value: value.rsplit("}", 1)[-1]
+    diagnostics: list[Diagnostic] = []
+    if local_name(root.tag) != "svg" or root.get("viewBox") is None or root.get("role") != "img":
+        diagnostics.append(Diagnostic(source, "$.svg", "unsafe_svg", "Canonical SVG must declare svg, viewBox, and role=img"))
+    child_names = {local_name(child.tag) for child in root}
+    if not {"title", "desc"} <= child_names:
+        diagnostics.append(Diagnostic(source, "$.svg", "unsafe_svg", "Canonical SVG must include title and desc"))
+    for element in root.iter():
+        tag = local_name(element.tag)
+        if tag in {"script", "foreignObject"}:
+            diagnostics.append(Diagnostic(source, "$.svg", "unsafe_svg", f"Canonical SVG must not contain {tag}"))
+        for name, value in element.attrib.items():
+            attribute = local_name(name)
+            if attribute.lower().startswith("on"):
+                diagnostics.append(Diagnostic(source, "$.svg", "unsafe_svg", "Canonical SVG must not contain event handlers"))
+            if attribute in {"href", "src"} and isinstance(value, str):
+                parsed = urlparse(value)
+                if parsed.scheme or parsed.netloc or value.startswith("//"):
+                    diagnostics.append(Diagnostic(source, "$.svg", "unsafe_svg", "Canonical SVG must not reference remote assets"))
+    return diagnostics
+
+
+def _collect_ids(cases: list[dict[str, Any]]) -> tuple[set[str], set[str], set[str], set[str], dict[str, dict[str, Any]]]:
     source_ids: set[str] = set()
     claim_ids: set[str] = set()
     evidence_ids: set[str] = set()
     decision_ids: set[str] = set()
+    source_records: dict[str, dict[str, Any]] = {}
     for case in cases:
         if not case["spec"].get("expected_valid", False):
             continue
         document = case["document"]
         if "source" in document:
-            source_ids.add(document["source"].get("id"))
+            source_id = document["source"].get("id")
+            source_ids.add(source_id)
+            if isinstance(source_id, str) and isinstance(document["source"], dict):
+                source_records[source_id] = document["source"]
         if "claim" in document:
             claim_ids.add(document["claim"].get("id"))
         if "evidence" in document:
             evidence_ids.add(document["evidence"].get("id"))
         if "decision" in document:
             decision_ids.add(document["decision"].get("id"))
-    return source_ids, claim_ids, evidence_ids, decision_ids
+    return source_ids, claim_ids, evidence_ids, decision_ids, source_records
 
 
 def resolve_repo_path(
@@ -1328,7 +1916,7 @@ def skill_repository_diagnostics(
     documents: dict[str, dict[str, Any]] = {}
     declared_ids: dict[str, str] = {}
     output_types: dict[str, set[str]] = {}
-    for skill_id in sorted(REQUIRED_SKILL_IDS & catalog.skill_ids):
+    for skill_id in sorted(required_skill_ids_for_version(contract_version) & catalog.skill_ids):
         directory = catalog.root / "skills" / skill_id
         yaml_path = directory / "skill.yaml"
         yaml_source = yaml_path.relative_to(catalog.root).as_posix()
@@ -1399,7 +1987,7 @@ def template_repository_diagnostics(
 ) -> tuple[list[Diagnostic], int]:
     diagnostics: list[Diagnostic] = []
     checked = 0
-    for relative_path, artifact_type in REQUIRED_TEMPLATE_CONTRACTS.items():
+    for relative_path, artifact_type in template_contracts_for_version(contract_version).items():
         path = catalog.root / relative_path
         if not path.is_file():
             continue
@@ -1461,12 +2049,12 @@ def fixture_diagnostics(
     manifest_version = manifest.get("contract_version")
     if manifest_version is not None and manifest_version != contract_version:
         diagnostics.append(Diagnostic(_display_path(fixture_manifest_path), "$.contract_version", "contract_version", f"Fixture Manifest version must be {contract_version}"))
-    if contract_version == "0.2.0" and manifest.get("path_resolution") != "bundle_root_relative":
-        diagnostics.append(Diagnostic(_display_path(fixture_manifest_path), "$.path_resolution", "fixture_manifest", "v0.2 Fixture paths must be Bundle-root-relative"))
+    if contract_version != "0.1.0" and manifest.get("path_resolution") != "bundle_root_relative":
+        diagnostics.append(Diagnostic(_display_path(fixture_manifest_path), "$.path_resolution", "fixture_manifest", "v0.2+ Fixture paths must be Bundle-root-relative"))
 
     legacy_cases = manifest.get("legacy_cases", [])
-    if contract_version == "0.2.0" and not isinstance(legacy_cases, list):
-        diagnostics.append(Diagnostic(_display_path(fixture_manifest_path), "$.legacy_cases", "fixture_manifest", "v0.2 Fixture Manifest legacy_cases must be an array"))
+    if contract_version != "0.1.0" and not isinstance(legacy_cases, list):
+        diagnostics.append(Diagnostic(_display_path(fixture_manifest_path), "$.legacy_cases", "fixture_manifest", "v0.2+ Fixture Manifest legacy_cases must be an array"))
         legacy_cases = []
     listed_paths = [
         spec.get("path")
@@ -1513,7 +2101,7 @@ def fixture_diagnostics(
             continue
         loaded_cases.append({"spec": spec, "document": document})
 
-    source_ids, claim_ids, evidence_ids, decision_ids = _collect_ids(loaded_cases)
+    source_ids, claim_ids, evidence_ids, decision_ids, source_records = _collect_ids(loaded_cases)
     for case in loaded_cases:
         spec = case["spec"]
         document = case["document"]
@@ -1551,6 +2139,33 @@ def fixture_diagnostics(
                         case_diagnostics.append(Diagnostic(source, "$.idea_fixture", "fixture_load", str(exc)))
                     else:
                         case_diagnostics.extend(research_origin_diagnostics(idea_document, document, source))
+            if "projection_references" in semantics and isinstance(document, dict):
+                case_diagnostics.extend(citation_closure_diagnostics(document, source, source_records))
+            if contract_version in {"0.3.1", "0.3.2"} and "chart_template" in semantics and isinstance(document, dict):
+                case_diagnostics.extend(chart_template_diagnostics(document, source, catalog))
+            if contract_version in {"0.3.1", "0.3.2"} and "chart_data" in semantics and isinstance(document, dict):
+                chart_spec_fixture = spec.get("chart_spec_fixture")
+                if not isinstance(chart_spec_fixture, str):
+                    case_diagnostics.append(Diagnostic(source, "$.chart_spec_fixture", "fixture_manifest", "chart_data requires chart_spec_fixture"))
+                else:
+                    try:
+                        chart_spec_path = resolve_repo_path(
+                            chart_spec_fixture,
+                            root=bundle_root,
+                            allowed_root="fixtures",
+                            must_exist=True,
+                            reject_symlinks=True,
+                        )
+                        chart_spec = load_document(chart_spec_path)
+                    except (OSError, ValueError, TypeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+                        case_diagnostics.append(Diagnostic(source, "$.chart_spec_fixture", "fixture_load", str(exc)))
+                    else:
+                        if not isinstance(chart_spec, dict):
+                            case_diagnostics.append(Diagnostic(source, "$.chart_spec_fixture", "fixture_load", "Chart Spec fixture must be an object"))
+                        else:
+                            case_diagnostics.extend(chart_data_diagnostics(document, chart_spec, source))
+            if contract_version in {"0.3.1", "0.3.2"} and "svg_static" in semantics and isinstance(document, dict):
+                case_diagnostics.extend(svg_static_diagnostics(document, source))
 
         if spec.get("expected_valid", False):
             diagnostics.extend(case_diagnostics)
@@ -1641,6 +2256,68 @@ def legacy_fixture_diagnostics(
     return diagnostics, checked
 
 
+def staged_validation_registry(context: BundleContext, version_registry: VersionRegistry) -> VersionRegistry:
+    """Add an in-memory-only target entry for one staged static Bundle.
+
+    The resulting Registry exists only during static validation.  It allows the
+    staged Bundle's explicit legacy fixtures to exercise default-deny behavior
+    without making that version resolvable by Runtime code.
+    """
+    contract_version = context.bundle.contract_version
+    expected_root_ref = STAGED_STATIC_BUNDLE_ROOTS.get(contract_version)
+    if expected_root_ref is None:
+        return version_registry
+    expected_root = (ROOT / expected_root_ref).resolve()
+    if context.bundle.root.resolve() != expected_root:
+        raise ContractResolutionError(
+            f"Staged Bundle root does not match {expected_root_ref}",
+            code="INPUT_INVALID",
+            rule="staged_bundle_root",
+        )
+    if contract_version in version_registry.versions:
+        raise ContractResolutionError(
+            f"Staged Bundle {contract_version} must not be registered before promotion",
+            code="INPUT_INVALID",
+            rule="staged_bundle_registered",
+        )
+    entry = VersionEntry(
+        contract_version=contract_version,
+        status="staged",
+        bundle_root_ref=expected_root_ref,
+        bundle_root=expected_root,
+        new_runs_allowed=False,
+        resume_allowed=False,
+        audit_allowed=False,
+    )
+    revalidation = (
+        "source_schema",
+        "content_hash",
+        "freshness",
+        "provenance",
+        "security",
+        "verification",
+    )
+    rules = tuple(
+        CompatibilityRule(
+            id=f"{ref_type}_seed_v1_to_v031",
+            source_contract_version="0.1.0",
+            target_contract_version=contract_version,
+            ref_type=ref_type,
+            purpose="seed_current_research",
+            access="read_only",
+            current_manifest_allowed=False,
+            state_driving_allowed=False,
+            required_revalidation=revalidation,
+        )
+        for ref_type in ("source", "evidence", "claim")
+    )
+    return replace(
+        version_registry,
+        versions={**version_registry.versions, contract_version: entry},
+        compatibility_rules=(*version_registry.compatibility_rules, *rules),
+    )
+
+
 def _scope_bundle_diagnostics(
     diagnostics: Iterable[Diagnostic],
     context: BundleContext,
@@ -1727,11 +2404,16 @@ def validate_bundle(
     diagnostics.extend(fixture_errors)
     checked += fixture_count
 
-    if contract_version == "0.2.0":
+    if contract_version != "0.1.0":
         selected_registry = version_registry or load_version_registry(repository_root=ROOT)
+        selected_registry = staged_validation_registry(context, selected_registry)
         legacy_errors, legacy_count = legacy_fixture_diagnostics(context, selected_registry)
         diagnostics.extend(legacy_errors)
         checked += legacy_count
+
+    if contract_version in {"0.3.1", "0.3.2"}:
+        diagnostics.extend(v031_auxiliary_contract_diagnostics(catalog, contract_version=contract_version))
+        checked += auxiliary_contract_check_count(contract_version)
 
     scope_root = version_registry.path.parents[1] if version_registry is not None else ROOT
     scoped = _scope_bundle_diagnostics(diagnostics, context, repository_root=scope_root)
@@ -1739,7 +2421,7 @@ def validate_bundle(
 
 
 def validate_repository() -> tuple[list[Diagnostic], int]:
-    """Validate Registry, immutable v0.1 audit, and complete v0.2 closure."""
+    """Validate Registry, immutable v0.1 audit, and every complete bundle closure."""
     diagnostics, checked = registry_contract_diagnostics()
     try:
         version_registry = load_version_registry(repository_root=ROOT)
@@ -1749,9 +2431,10 @@ def validate_repository() -> tuple[list[Diagnostic], int]:
 
     checked += 1
     for failure in verify_integrity(version_registry, repository_root=ROOT):
-        diagnostics.append(Diagnostic("contracts/0.1.0-baseline.sha256.json", "$", "contract_integrity", failure))
+        diagnostics.append(Diagnostic("contracts/registry.yaml", "$", "contract_integrity", failure))
 
-    for version, operation in (("0.1.0", "audit"), ("0.2.0", "new_run")):
+    for version, entry in version_registry.versions.items():
+        operation = "new_run" if entry.new_runs_allowed else "audit"
         try:
             bundle = resolve_contract_bundle(
                 version,
@@ -1762,6 +2445,20 @@ def validate_repository() -> tuple[list[Diagnostic], int]:
             context = load_bundle_context(bundle)
         except ContractResolutionError as exc:
             diagnostics.append(Diagnostic("contracts/registry.yaml", f"$.registry.versions.{version}", exc.rule, str(exc)))
+            continue
+        bundle_errors, bundle_count = validate_bundle(context, version_registry=version_registry)
+        diagnostics.extend(bundle_errors)
+        checked += bundle_count
+
+    for version, root_ref in STAGED_STATIC_BUNDLE_ROOTS.items():
+        if version in version_registry.versions:
+            diagnostics.append(Diagnostic("contracts/registry.yaml", f"$.registry.versions.{version}", "staged_bundle_registered", f"Staged Bundle {version} must not be registered before promotion"))
+            continue
+        root = (ROOT / root_ref).resolve()
+        try:
+            context = load_bundle_context(ContractBundle(version, root, "staged", "audit"))
+        except ContractResolutionError as exc:
+            diagnostics.append(Diagnostic(root_ref, "$", exc.rule, str(exc)))
             continue
         bundle_errors, bundle_count = validate_bundle(context, version_registry=version_registry)
         diagnostics.extend(bundle_errors)

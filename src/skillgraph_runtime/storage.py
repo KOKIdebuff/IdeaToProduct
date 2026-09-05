@@ -606,8 +606,11 @@ class RunStorage:
             return
         self._write_immutable_json(reference, document)
 
-    def read_research_provenance(self, state_version: int) -> tuple[tuple[Mapping[str, Any], ...], tuple[Mapping[str, Any], ...]]:
-        """Load the newest committed-or-earlier private Evidence/Claim snapshot.
+    def read_research_provenance(
+        self,
+        state_version: int,
+    ) -> tuple[tuple[Mapping[str, Any], ...], tuple[Mapping[str, Any], ...], tuple[Mapping[str, Any], ...]]:
+        """Load the newest committed-or-earlier private Evidence/Claim/Fact snapshot.
 
         Provenance is intentionally a Runtime sidecar while the frozen Bundle
         has no producer-owned Evidence/Claim repository contract.  As with the
@@ -628,14 +631,21 @@ class RunStorage:
                 if 0 <= version <= state_version:
                     candidates.append(version)
         if not candidates:
-            return (), ()
+            return (), (), ()
         document = self._read_json(f"runtime/research-provenance/{max(candidates)}.json")
         if not isinstance(document, Mapping) or not isinstance(document.get("evidence"), list) or not isinstance(document.get("claims"), list):
             raise RuntimeContractError("Persisted Research Provenance is invalid", code="SCHEMA_INVALID", rule="provenance_read")
         evidence, claims = document["evidence"], document["claims"]
-        if any(not isinstance(item, Mapping) for item in evidence) or any(not isinstance(item, Mapping) for item in claims):
+        fact_bindings = document.get("fact_bindings", [])
+        if not isinstance(fact_bindings, list):
+            raise RuntimeContractError("Persisted Research Provenance Fact Bindings are invalid", code="SCHEMA_INVALID", rule="provenance_read")
+        if (
+            any(not isinstance(item, Mapping) for item in evidence)
+            or any(not isinstance(item, Mapping) for item in claims)
+            or any(not isinstance(item, Mapping) for item in fact_bindings)
+        ):
             raise RuntimeContractError("Persisted Research Provenance contains an invalid record", code="SCHEMA_INVALID", rule="provenance_read")
-        return tuple(evidence), tuple(claims)
+        return tuple(evidence), tuple(claims), tuple(fact_bindings)
 
     def write_research_provenance(
         self,
@@ -644,8 +654,9 @@ class RunStorage:
         schema_version: str,
         evidence: tuple[Mapping[str, Any], ...],
         claims: tuple[Mapping[str, Any], ...],
+        fact_bindings: tuple[Mapping[str, Any], ...] = (),
     ) -> None:
-        """Write one immutable Evidence/Claim snapshot for a pending commit."""
+        """Write one immutable Evidence/Claim/Fact snapshot for a pending commit."""
 
         if not isinstance(state_version, int) or state_version < 1:
             raise RuntimeContractError("Research Provenance state version is invalid", rule="provenance_state_version")
@@ -653,16 +664,20 @@ class RunStorage:
             raise RuntimeContractError("Research Provenance schema version is invalid", rule="provenance_schema_version")
         ordered_evidence = tuple(sorted((deep_thaw(item) for item in evidence), key=lambda item: str(item.get("id", ""))))
         ordered_claims = tuple(sorted((deep_thaw(item) for item in claims), key=lambda item: str(item.get("id", ""))))
+        ordered_fact_bindings = tuple(sorted((deep_thaw(item) for item in fact_bindings), key=lambda item: str(item.get("fact_id", ""))))
         document = {
             "schema_version": schema_version,
             "state_version": state_version,
             "evidence": list(ordered_evidence),
             "claims": list(ordered_claims),
+            "fact_bindings": list(ordered_fact_bindings),
         }
         reference = f"runtime/research-provenance/{state_version}.json"
         path = self._path(reference)
         if path.exists():
             existing = self._read_json(reference)
+            if isinstance(existing, Mapping) and "fact_bindings" not in existing:
+                existing = {**existing, "fact_bindings": []}
             if existing != document:
                 raise RuntimeContractError("Research Provenance snapshot conflicts with an existing state version", code="STATE_VERSION_CONFLICT", rule="provenance_conflict")
             return

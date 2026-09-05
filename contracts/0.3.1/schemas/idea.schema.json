@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "v0.2 Idea Definition Artifact Contract",
+  "$defs": {
+    "nullable_text": {"type": ["string", "null"]},
+    "text_list": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "assumption": {
+      "type": "object",
+      "required": ["id", "type", "claim", "status", "criticality"],
+      "properties": {
+        "id": {"$ref": "common.schema.json#/$defs/assumption_id"},
+        "type": {"enum": ["user", "problem", "behavior", "solution", "market", "technical"]},
+        "claim": {"type": "string", "minLength": 1},
+        "status": {"const": "unvalidated"},
+        "criticality": {"enum": ["high", "medium", "low"]}
+      },
+      "additionalProperties": false
+    },
+    "unknown": {
+      "type": "object",
+      "required": ["id", "dimension", "question", "researchable"],
+      "properties": {
+        "id": {"$ref": "common.schema.json#/$defs/unknown_id"},
+        "dimension": {"enum": ["problem", "user", "scenario", "value", "mechanism", "market", "technical"]},
+        "question": {"type": "string", "minLength": 1},
+        "researchable": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "idea_definition": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": [
+            "artifact",
+            "idea",
+            "problem",
+            "target_users",
+            "scenario",
+            "jtbd",
+            "value_proposition",
+            "solution",
+            "scope",
+            "assumptions",
+            "unknowns",
+            "research_seeds",
+            "clarity",
+            "confidence",
+            "shaping"
+          ],
+          "properties": {
+            "artifact": {
+              "type": "object",
+              "properties": {"type": {"const": "idea_definition"}}
+            },
+            "idea": {
+              "type": "object",
+              "required": ["original", "normalized_summary"],
+              "properties": {
+                "original": {"type": "string", "minLength": 1},
+                "normalized_summary": {"type": "string", "minLength": 1}
+              },
+              "additionalProperties": false
+            },
+            "problem": {
+              "type": "object",
+              "required": ["statement", "trigger", "current_alternative", "pain_hypothesis"],
+              "properties": {
+                "statement": {"$ref": "#/$defs/nullable_text"},
+                "trigger": {"$ref": "#/$defs/nullable_text"},
+                "current_alternative": {"$ref": "#/$defs/nullable_text"},
+                "pain_hypothesis": {"$ref": "#/$defs/nullable_text"}
+              },
+              "additionalProperties": false
+            },
+            "target_users": {
+              "type": "object",
+              "required": ["primary", "secondary"],
+              "properties": {
+                "primary": {"$ref": "#/$defs/text_list"},
+                "secondary": {"$ref": "#/$defs/text_list"}
+              },
+              "additionalProperties": false
+            },
+            "scenario": {
+              "type": "object",
+              "required": ["primary_context", "trigger", "desired_outcome"],
+              "properties": {
+                "primary_context": {"$ref": "#/$defs/nullable_text"},
+                "trigger": {"$ref": "#/$defs/nullable_text"},
+                "desired_outcome": {"$ref": "#/$defs/nullable_text"}
+              },
+              "additionalProperties": false
+            },
+            "jtbd": {
+              "type": "object",
+              "required": ["functional", "emotional", "social"],
+              "properties": {
+                "functional": {"$ref": "#/$defs/nullable_text"},
+                "emotional": {"$ref": "#/$defs/nullable_text"},
+                "social": {"$ref": "#/$defs/nullable_text"}
+              },
+              "additionalProperties": false
+            },
+            "value_proposition": {
+              "type": "object",
+              "required": ["core_value", "why_better_hypothesis"],
+              "properties": {
+                "core_value": {"$ref": "#/$defs/nullable_text"},
+                "why_better_hypothesis": {"$ref": "#/$defs/nullable_text"}
+              },
+              "additionalProperties": false
+            },
+            "solution": {
+              "type": "object",
+              "required": ["direction_hypothesis", "alternatives_considered", "core_mechanism"],
+              "properties": {
+                "direction_hypothesis": {"$ref": "#/$defs/nullable_text"},
+                "alternatives_considered": {"$ref": "#/$defs/text_list"},
+                "core_mechanism": {"$ref": "#/$defs/nullable_text"}
+              },
+              "additionalProperties": false
+            },
+            "scope": {
+              "type": "object",
+              "required": ["initial_boundary", "non_goals"],
+              "properties": {
+                "initial_boundary": {"$ref": "#/$defs/nullable_text"},
+                "non_goals": {"$ref": "#/$defs/text_list"}
+              },
+              "additionalProperties": false
+            },
+            "assumptions": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/assumption"}},
+            "unknowns": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/unknown"}},
+            "research_seeds": {
+              "type": "object",
+              "required": ["competitor_questions", "user_questions", "market_questions", "technology_questions"],
+              "properties": {
+                "competitor_questions": {"$ref": "#/$defs/text_list"},
+                "user_questions": {"$ref": "#/$defs/text_list"},
+                "market_questions": {"$ref": "#/$defs/text_list"},
+                "technology_questions": {"$ref": "#/$defs/text_list"}
+              },
+              "additionalProperties": false
+            },
+            "clarity": {
+              "type": "object",
+              "required": ["problem", "user", "scenario", "value", "mechanism", "overall"],
+              "properties": {
+                "problem": {"$ref": "common.schema.json#/$defs/clarity_level"},
+                "user": {"$ref": "common.schema.json#/$defs/clarity_level"},
+                "scenario": {"$ref": "common.schema.json#/$defs/clarity_level"},
+                "value": {"$ref": "common.schema.json#/$defs/clarity_level"},
+                "mechanism": {"$ref": "common.schema.json#/$defs/clarity_level"},
+                "overall": {"$ref": "common.schema.json#/$defs/idea_clarity"}
+              },
+              "additionalProperties": false
+            },
+            "confidence": {
+              "type": "object",
+              "required": ["overall", "basis"],
+              "properties": {
+                "overall": {"enum": ["high", "medium", "low", "insufficient"]},
+                "basis": {"$ref": "#/$defs/nullable_text"}
+              },
+              "additionalProperties": false
+            },
+            "shaping": {
+              "type": "object",
+              "required": ["mode", "rounds_used", "completion_outcome"],
+              "properties": {
+                "mode": {"$ref": "common.schema.json#/$defs/idea_clarity"},
+                "rounds_used": {"type": "integer", "minimum": 0, "maximum": 8},
+                "completion_outcome": {"$ref": "common.schema.json#/$defs/idea_completion_outcome"}
+              },
+              "allOf": [
+                {
+                  "if": {"properties": {"mode": {"const": "CLEAR"}}, "required": ["mode"]},
+                  "then": {"properties": {"rounds_used": {"maximum": 1}}}
+                }
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "$ref": "#/$defs/idea_definition"
+}

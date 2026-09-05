@@ -305,17 +305,20 @@ def compile_bundle(
     repository_root: Path,
     profile_id: str,
     contract_version: str | None = None,
+    *,
+    operation: str = "new_run",
 ) -> CompiledBundle:
     try:
         registry = load_version_registry(repository_root=repository_root)
         registry = replace(
             registry,
             versions=MappingProxyType(dict(registry.versions)),
+            frozen_bundle_manifests=MappingProxyType(dict(registry.frozen_bundle_manifests)),
             frozen_documents_sha256=MappingProxyType(dict(registry.frozen_documents_sha256)),
         )
         bundle = resolve_contract_bundle(
             contract_version,
-            operation="new_run",
+            operation=operation,
             repository_root=repository_root,
             registry=registry,
         )

@@ -25,7 +25,7 @@ def _stable(value: object) -> str:
 
 def test_legacy_fixture_matrix_is_explicit_default_deny_and_non_mutating():
     registry = load_version_registry()
-    current = resolve_contract_bundle(registry=registry)
+    current = resolve_contract_bundle("0.2.0", operation="audit", registry=registry)
     context = load_bundle_context(current)
     manifest = load_document(context.fixture_manifest_path)
 
@@ -92,14 +92,14 @@ def test_v01_resume_rejection_does_not_modify_legacy_state_bytes():
     ],
 )
 def test_v02_bundle_reference_resolution_fails_closed(unsafe_ref: str):
-    context = load_bundle_context(resolve_contract_bundle())
+    context = load_bundle_context(resolve_contract_bundle("0.2.0", operation="audit"))
 
     with pytest.raises(ContractResolutionError):
         resolve_bundle_reference(context, unsafe_ref, allowed_prefixes=("schemas",))
 
 
 def test_v02_bundle_reference_never_falls_back_to_v01_root(tmp_path):
-    context = load_bundle_context(resolve_contract_bundle())
+    context = load_bundle_context(resolve_contract_bundle("0.2.0", operation="audit"))
     isolated_bundle = replace(
         context,
         bundle=replace(context.bundle, root=tmp_path.resolve()),

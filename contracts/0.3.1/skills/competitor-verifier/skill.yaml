@@ -1,0 +1,49 @@
+skill:
+  id: competitor-verifier
+  version: 0.3.1
+  type: verifier
+inputs:
+  required: [research_contract, competitor_candidates, competitor_ranking, competitor_deep_dive, competitor_dataset, competitor_analysis, report_projection, chart_bundle, competitor_report]
+  optional: [source_index, transparent_score, score_verification]
+reads:
+  - artifacts/01-contract/research-contract.yaml
+  - artifacts/02-research/competitors/candidates.json
+  - artifacts/02-research/competitors/ranking.yaml
+  - artifacts/02-research/competitors/deep-dives/
+  - artifacts/02-research/competitors/competitor-dataset.json
+  - artifacts/02-research/competitors/analysis/
+  - artifacts/02-research/competitors/report-projection.json
+  - artifacts/02-research/competitors/scoring/scores/
+  - artifacts/02-research/competitors/scoring/verifications/
+  - artifacts/02-research/competitors/visualizations/
+  - artifacts/02-research/competitors/competitor-report.html
+  - artifacts/02-research/source-index.json
+writes:
+  - artifacts/02-research/competitors/competitor-verification.yaml
+output_contracts:
+  - artifact_type: competitor_verification
+    write: artifacts/02-research/competitors/competitor-verification.yaml
+    schema_ref: schemas/verification.schema.json#/$defs/competitor_verification
+    template_ref: null
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/02-research/competitors/competitor-verification.yaml
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 0
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [competitor_verification]
+  retry_targets_required_on_gap: true
+  return_to: competitor_verifier
+  citation_closure_verified: true
+  canonical_svg_verified: true
+  png_partial_disclosed: true
+  report_successor_scope: verification_summary_only
+on_failure: []

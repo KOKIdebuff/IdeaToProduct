@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Decision Contract",
+  "type": "object",
+  "required": ["decision"],
+  "properties": {
+    "decision": {
+      "type": "object",
+      "required": ["id", "date", "gate_id", "question", "decision", "rationale", "evidence_ids", "artifact_refs", "alternatives", "accepted_risks", "structured_diff_ref", "reversible", "approved_by"],
+      "properties": {
+        "id": {"$ref": "common.schema.json#/$defs/decision_id"},
+        "date": {"type": "string", "format": "date-time"},
+        "gate_id": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "question": {"type": "string", "minLength": 1},
+        "decision": {"$ref": "common.schema.json#/$defs/gate_decision"},
+        "rationale": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "evidence_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/evidence_id"}},
+        "artifact_refs": {"$ref": "common.schema.json#/$defs/artifact_refs"},
+        "alternatives": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "accepted_risks": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "structured_diff_ref": {
+          "anyOf": [
+            {"$ref": "common.schema.json#/$defs/artifact_ref"},
+            {"type": "null"}
+          ]
+        },
+        "reversible": {"type": "boolean"},
+        "approved_by": {
+          "type": "object",
+          "required": ["type", "id"],
+          "properties": {
+            "type": {"const": "user"},
+            "id": {"type": ["string", "null"]}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

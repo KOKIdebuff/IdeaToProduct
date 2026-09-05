@@ -1,0 +1,174 @@
+workflow:
+  id: product-discovery
+  version: 0.3.0
+  schema_version: 0.3.0
+
+policies:
+  max_retries_per_node: 2
+  max_global_research_cycles: 2
+  max_parallel: 4
+  automated_attempt_timeout_minutes: 20
+  max_sources_per_research_node: 50
+  automated_run_timeout_minutes: 120
+  host_token_limit: null
+  host_cost_limit: null
+
+nodes:
+  idea:
+    kind: skill
+    skill: idea-intake
+    required: true
+
+  contract:
+    kind: skill
+    skill: research-contract
+    depends_on: [idea]
+    required: true
+
+  gate_research:
+    kind: human_gate
+    gate: research-scope
+    depends_on: [contract]
+
+  competitor:
+    kind: subgraph
+    subgraph: competitor-research
+    depends_on: [gate_research]
+    required: true
+    configurable_by_profile: true
+
+  users:
+    kind: skill
+    skill: user-evidence
+    depends_on: [gate_research]
+    required: true
+    configurable_by_profile: true
+
+  market:
+    kind: skill
+    skill: market-landscape
+    depends_on: [gate_research]
+    required: true
+    configurable_by_profile: true
+
+  technology:
+    kind: skill
+    skill: oss-tech-landscape
+    depends_on: [gate_research]
+    required: true
+    configurable_by_profile: true
+
+  research_verifier:
+    kind: verifier
+    skill: research-verifier
+    depends_on: [competitor, users, market, technology]
+
+  research_gap:
+    kind: skill
+    skill: research-gap
+    depends_on: [research_verifier, evidence_waiver]
+    when:
+      any_of:
+        - node: research_verifier
+          verification_result: FAIL
+        - node: evidence_waiver
+          gate_decision: REQUEST_MORE_RESEARCH
+    loop:
+      retry_targets_from: artifacts/03-analysis/research-gap.yaml
+      invalidate_from_gap: true
+      always_invalidate: [research_verifier, evidence_waiver]
+      return_to: research_verifier
+
+  evidence_waiver:
+    kind: human_gate
+    gate: evidence-waiver
+    depends_on: [research_verifier]
+    required: false
+    when:
+      node: research_verifier
+      verification_result: PARTIAL
+
+  research_synthesis:
+    kind: skill
+    skill: research-synthesis
+    depends_on: [research_verifier, evidence_waiver]
+    when:
+      any_of:
+        - node: research_verifier
+          verification_result: PASS
+        - node: evidence_waiver
+          gate_decision: PARTIAL_ACCEPTED
+
+  opportunity:
+    kind: skill
+    skill: opportunity-mapping
+    depends_on: [research_synthesis]
+
+  gate_direction:
+    kind: human_gate
+    gate: product-direction
+    depends_on: [opportunity]
+
+  definition:
+    kind: skill
+    skill: product-definition
+    depends_on: [gate_direction]
+
+  feasibility:
+    kind: skill
+    skill: feasibility-review
+    depends_on: [definition]
+
+  proof:
+    kind: skill
+    skill: proof-planner
+    depends_on: [feasibility]
+    when:
+      node: feasibility
+      feasibility_result: BLOCKED
+
+  proof_result:
+    kind: external_input
+    contract: proof-result
+    depends_on: [proof]
+    when:
+      node: proof
+      node_status: VERIFIED
+    wait_status: WAITING_FOR_EXTERNAL
+    on_submit:
+      validate: proof-result.schema.json
+      invalidate: [feasibility]
+      return_to: feasibility
+
+  scope:
+    kind: skill
+    skill: mvp-scope
+    depends_on: [feasibility]
+    when:
+      node: feasibility
+      feasibility_result: [FEASIBLE, CONDITIONALLY_FEASIBLE]
+
+  gate_scope:
+    kind: human_gate
+    gate: mvp-scope
+    depends_on: [scope]
+
+  prd:
+    kind: skill
+    skill: prd-generator
+    depends_on: [gate_scope]
+
+  prd_consistency_verifier:
+    kind: verifier
+    skill: prd-consistency-verifier
+    depends_on: [prd]
+
+  build_readiness_verifier:
+    kind: verifier
+    skill: build-readiness-verifier
+    depends_on: [prd_consistency_verifier]
+    trigger_on_terminal_events:
+      - CRITICAL_RESEARCH_BLOCKER
+      - FEASIBILITY_NOT_FEASIBLE
+      - REQUIRED_PROOF_FAILED
+      - PRD_CONSISTENCY_FAILED

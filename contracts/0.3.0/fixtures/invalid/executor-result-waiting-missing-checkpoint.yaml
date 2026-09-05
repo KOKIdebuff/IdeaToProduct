@@ -1,0 +1,32 @@
+executor_result:
+  schema_version: 0.3.0
+  run_id: run_20260809_001
+  node_id: idea
+  attempt_id: ATT-IDEA-001
+  status: WAITING_FOR_USER
+  output_artifact_refs: []
+  source_upserts: []
+  interaction_request:
+    method: clarification
+    question_id: IQ-001
+    round: 1
+    dimension: user
+    prompt: 你更想优先帮助哪类大学生？
+    options:
+      - id: A
+        label: 应届毕业生
+        description: 聚焦第一次全职求职。
+      - id: B
+        label: 寻找实习的低年级学生
+        description: 聚焦实习准备与申请。
+    recommendation:
+      option_id: A
+      rationale: 触发点和结果更明确。
+    allow_freeform_answer: true
+  usage:
+    automated_duration_seconds: 8.5
+    source_count: 0
+    input_tokens: 120
+    output_tokens: 180
+    estimated_cost: null
+  error: null

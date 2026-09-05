@@ -1,0 +1,22 @@
+artifact:
+  id: ART-CHART-PARTIAL-BROKEN
+  type: chart_bundle
+  schema_version: 0.3.2
+  version: 1
+  produced_by: {skill: competitor-visualization, attempt: ATT-VIS-BROKEN}
+  created_at: "2026-09-01T00:00:00Z"
+  supersedes: null
+  status: active
+chart: {id: chart_feature_matrix, type: feature_matrix, renderer_kind: matrix}
+data_ref: artifacts/02-research/competitors/visualizations/feature-matrix/data.json
+chart_spec_ref: artifacts/02-research/competitors/visualizations/feature-matrix/chart-spec.json
+svg_ref: artifacts/02-research/competitors/visualizations/feature-matrix/chart.svg
+png_ref: artifacts/02-research/competitors/visualizations/feature-matrix/chart.png
+insight_ref: artifacts/02-research/competitors/visualizations/feature-matrix/insight.md
+compatibility_export: {requested: true, status: PARTIAL, error: PNG exporter unavailable.}
+observation: Broken partial compatibility fixture.
+interpretation: PARTIAL must not declare png_ref.
+product_implication: Validator must reject the mismatch.
+confidence: MEDIUM
+evidence_ids: [EV-001]
+limitations: [Invalid fixture.]

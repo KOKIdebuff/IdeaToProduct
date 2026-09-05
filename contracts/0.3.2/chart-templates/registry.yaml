@@ -1,0 +1,25 @@
+contract_version: 0.3.2
+templates:
+  feature_matrix: {renderer_kind: matrix, data_contract: competitor_by_dimension_cells}
+  feature_ux_matrix: {renderer_kind: matrix, data_contract: competitor_by_dimension_cells}
+  capability_matrix: {renderer_kind: matrix, data_contract: competitor_by_dimension_cells}
+  integration_security_coverage: {renderer_kind: matrix, data_contract: competitor_by_dimension_cells}
+  positioning_map: {renderer_kind: scatter, data_contract: competitor_xy_points}
+  momentum_comparison: {renderer_kind: bar, data_contract: category_values}
+  ecosystem_momentum: {renderer_kind: bar, data_contract: category_values}
+  cost_performance: {renderer_kind: bar, data_contract: category_values}
+  pricing_comparison: {renderer_kind: bar, data_contract: category_values}
+  oss_activity: {renderer_kind: line, data_contract: time_series_values}
+  sentiment_distribution: {renderer_kind: distribution, data_contract: bucket_counts}
+svg_contract:
+  required_attributes: [viewBox, role]
+  required_elements: [title, desc]
+  forbidden_elements: [script, foreignObject]
+  forbidden_attribute_prefixes: [on]
+  external_references: forbidden
+  network_dependency: forbidden
+png_compatibility:
+  canonical: false
+  explicit_request_only: true
+  failure_after_valid_svg: PARTIAL
+  svg_fallback: forbidden

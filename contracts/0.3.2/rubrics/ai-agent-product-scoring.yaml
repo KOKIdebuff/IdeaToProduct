@@ -1,0 +1,26 @@
+rubric:
+  id: ai_agent_product_scoring
+  version: 1.0.0
+  profile_ref: ai_agent_product@0.3.2
+  integer_only: true
+  minimum: 1
+  maximum: 10
+  aggregation: weighted_arithmetic_mean
+  minimum_weight_coverage: 0.8
+  missing_evidence: renormalize_available_weights_partial
+  tie_break: evidence_coverage_then_shared_rank
+  change_rationale: Initial equal-weight AI-agent-product scoring baseline.
+  changelog:
+    - {version: 1.0.0, date: "2026-09-01", reason: Initial approved equal-weight baseline.}
+score_bands:
+  - {minimum: 1, maximum: 2, meaning: Clearly insufficient or supported by negative evidence.}
+  - {minimum: 3, maximum: 4, meaning: Limited capability or weak evidence coverage.}
+  - {minimum: 5, maximum: 6, meaning: Meets baseline expectations.}
+  - {minimum: 7, maximum: 8, meaning: Strong verified capability.}
+  - {minimum: 9, maximum: 10, meaning: Clearly leading with multiple direct supporting evidence records.}
+dimensions:
+  - {id: agent_capability, definition: Verified agent execution and orchestration capability, weight: 0.2, allowed_claim_categories: [competitor, product, technology], minimum_evidence_count: 1}
+  - {id: reliability_observability, definition: Reliability controls recovery and observability, weight: 0.2, allowed_claim_categories: [competitor, product, technology], minimum_evidence_count: 1}
+  - {id: tool_model_integration, definition: Tool model and API integration maturity, weight: 0.2, allowed_claim_categories: [competitor, product, technology], minimum_evidence_count: 1}
+  - {id: cost_performance, definition: Observed cost relative to verified capability or performance, weight: 0.2, allowed_claim_categories: [competitor, market, product], minimum_evidence_count: 1}
+  - {id: ecosystem_momentum, definition: Ecosystem release activity and adoption momentum, weight: 0.2, allowed_claim_categories: [competitor, market, technology], minimum_evidence_count: 1}

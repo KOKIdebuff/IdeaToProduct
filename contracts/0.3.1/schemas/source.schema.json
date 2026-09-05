@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Source Index Entry Contract",
+  "$defs": {
+    "source": {
+      "type": "object",
+      "required": ["id", "source_type", "title", "publisher", "accessed_at", "source_tier", "access_status", "freshness_status", "untrusted_content", "contains_personal_data"],
+      "properties": {
+        "id": {"$ref": "common.schema.json#/$defs/source_id"},
+        "source_type": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "canonical_url": {"type": ["string", "null"], "format": "uri"},
+        "title": {"type": "string", "minLength": 1},
+        "publisher": {"type": "string", "minLength": 1},
+        "author": {"type": ["string", "null"]},
+        "published_at": {"$ref": "common.schema.json#/$defs/timestamp"},
+        "accessed_at": {"type": "string", "format": "date-time"},
+        "source_tier": {"type": "integer", "minimum": 1, "maximum": 4},
+        "access_status": {"enum": ["public", "restricted", "unavailable", "forbidden"]},
+        "license_or_access_notes": {"type": ["string", "null"]},
+        "content_hash": {
+          "anyOf": [
+            {"$ref": "common.schema.json#/$defs/sha256"},
+            {"type": "null"}
+          ]
+        },
+        "excerpt_or_summary": {"type": ["string", "null"]},
+        "excerpt_word_count": {"type": ["integer", "null"], "minimum": 0},
+        "citation_metadata": {
+          "type": ["object", "null"],
+          "required": ["publisher_short_name", "excerpt", "local_favicon_ref"],
+          "properties": {
+            "publisher_short_name": {"type": "string", "minLength": 1},
+            "excerpt": {"type": "string", "minLength": 1},
+            "local_favicon_ref": {
+              "oneOf": [
+                {"$ref": "common.schema.json#/$defs/relative_path"},
+                {"type": "null"}
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "freshness_status": {"enum": ["FRESH", "STALE", "UNKNOWN"]},
+        "untrusted_content": {"const": true},
+        "contains_personal_data": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": ["source"],
+  "properties": {"source": {"$ref": "#/$defs/source"}},
+  "additionalProperties": false
+}

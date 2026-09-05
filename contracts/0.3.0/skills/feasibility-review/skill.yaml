@@ -1,0 +1,37 @@
+skill:
+  id: feasibility-review
+  version: 0.3.0
+  type: analysis
+inputs:
+  required: [product_definition]
+  optional: [research_synthesis, technology_landscape, proof_result]
+reads:
+  - artifacts/05-product/product-definition.md
+  - artifacts/03-analysis/research-synthesis.md
+  - artifacts/02-research/oss-tech-landscape.yaml
+  - artifacts/06-feasibility/proof-result.yaml
+  - templates/feasibility.md
+writes:
+  - artifacts/06-feasibility/feasibility.md
+output_contracts:
+  - artifact_type: feasibility_review
+    write: artifacts/06-feasibility/feasibility.md
+    schema_ref: schemas/artifact.schema.json
+    template_ref: templates/feasibility.md
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/06-feasibility/feasibility.md
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 0
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [feasibility_review]
+  result_required: true
+on_failure: []

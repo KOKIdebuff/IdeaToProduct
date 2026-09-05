@@ -46,7 +46,7 @@ def create_envelope() -> dict:
         "api_version": "0.2.0",
         "run_id": None,
         "idempotency_key": "create-001",
-        "payload": {"idea": "A testable idea", "profile_id": "developer_tool", "contract_version": "0.2.0"},
+        "payload": {"idea": "A testable idea", "profile_id": "developer_tool", "contract_version": "0.3.0"},
     }
 
 
@@ -141,8 +141,8 @@ def test_invalidation_is_precise_and_preserves_the_last_verified_predecessor(tmp
 
 
 def test_adapters_are_explicit_and_never_receive_runtime_write_authority():
-    request = type("Request", (), {"payload": {"executor_request": {"attempt_id": "ATT-1", "skill_ref": "idea-intake@0.2.0", "input_artifact_refs": [], "permissions": {"secrets": "forbidden"}, "budget": {}}}})()
-    fixture = FixtureAdapter({"idea-intake@0.2.0": {"executor_result": {"status": "COMPLETED"}}})
+    request = type("Request", (), {"payload": {"executor_request": {"attempt_id": "ATT-1", "skill_ref": "idea-intake@0.3.0", "input_artifact_refs": [], "permissions": {"secrets": "forbidden"}, "budget": {}}}})()
+    fixture = FixtureAdapter({"idea-intake@0.3.0": {"executor_result": {"status": "COMPLETED"}}})
     assert fixture.execute(request)["executor_result"]["status"] == "COMPLETED"
     assert ManualAdapter().execute(request)["manual_instruction"].attempt_id == "ATT-1"
     host = HostAgentAdapter(lambda _: {"executor_result": {"status": "COMPLETED"}})
@@ -163,13 +163,13 @@ def test_adapter_execution_revalidates_fixture_results_and_manual_waits(tmp_path
     snapshot = kernel.load_run(run_id)
     result = {
         "executor_result": {
-            "schema_version": "0.2.0", "run_id": run_id, "node_id": "idea", "attempt_id": attempt_id,
+                "schema_version": "0.3.0", "run_id": run_id, "node_id": "idea", "attempt_id": attempt_id,
             "status": "COMPLETED", "output_artifact_refs": [], "source_upserts": [],
             "usage": {"automated_duration_seconds": 0, "source_count": 0, "input_tokens": 0, "output_tokens": 0, "estimated_cost": 0},
             "error": None,
         }
     }
-    fixture_ops = RuntimeOperations(kernel, adapters=AdapterRegistry((FixtureAdapter({"idea-intake@0.2.0": result}),)))
+    fixture_ops = RuntimeOperations(kernel, adapters=AdapterRegistry((FixtureAdapter({"idea-intake@0.3.0": result}),)))
     completed = fixture_ops.execute_adapter_attempt(run_id, attempt_id, "fixture")
     assert completed["state"]["nodes"]["idea"]["status"] == "COMPLETED"
     assert any(
@@ -247,7 +247,9 @@ def test_cli_emits_one_json_envelope(tmp_path: Path, capsys):
     ])
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert json.loads(captured.out)["ok"] is True
+    created = json.loads(captured.out)
+    assert created["ok"] is True
+    assert created["data"]["contract_version"] == "0.3.0"
 
     invalid_exit = main(["--storage-root", str(tmp_path), "init"])
     invalid = capsys.readouterr()

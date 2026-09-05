@@ -1,0 +1,360 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Research Artifact Contracts",
+  "$defs": {
+    "profile_ref": {"type": "string", "pattern": "^(developer_tool|ai_agent_product|consumer_app|b2b_saas)@0\\.3\\.0$"},
+    "research_mode": {"enum": ["required", "optional", "disabled"]},
+    "threshold": {"oneOf": [{"type": "integer", "minimum": 1}, {"const": "N/A"}]},
+    "origin_ref": {
+      "type": "string",
+      "pattern": "^(?:ASM-[A-Za-z0-9_-]+|UNK-[A-Za-z0-9_-]+|research_seeds\\.(?:competitor|user|market|technology)_questions\\[[0-9]+\\])$"
+    },
+    "research_question": {
+      "type": "object",
+      "required": ["id", "question", "origin_refs"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^RQ-[A-Z]+-[0-9]+$"},
+        "question": {"type": "string", "minLength": 1},
+        "origin_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/origin_ref"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "origin_exception": {
+      "type": "object",
+      "required": ["origin_ref", "not_researchable_reason"],
+      "properties": {
+        "origin_ref": {"$ref": "#/$defs/origin_ref"},
+        "not_researchable_reason": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "research_contract": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "profile_ref", "effective_research", "research_questions", "origin_exceptions", "required_evidence", "required_source_types", "required_visualizations", "profile_adjustments", "run_policy", "stop_conditions"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "research_contract"}}},
+            "profile_ref": {"$ref": "#/$defs/profile_ref"},
+            "effective_research": {
+              "type": "object",
+              "required": ["competitor", "users", "market", "technology"],
+              "properties": {
+                "competitor": {"$ref": "#/$defs/research_mode"},
+                "users": {"$ref": "#/$defs/research_mode"},
+                "market": {"$ref": "#/$defs/research_mode"},
+                "technology": {"$ref": "#/$defs/research_mode"}
+              },
+              "additionalProperties": false
+            },
+            "research_questions": {
+              "type": "object",
+              "required": ["competitors", "users", "market", "technology"],
+              "properties": {
+                "competitors": {"type": "array", "items": {"$ref": "#/$defs/research_question"}},
+                "users": {"type": "array", "items": {"$ref": "#/$defs/research_question"}},
+                "market": {"type": "array", "items": {"$ref": "#/$defs/research_question"}},
+                "technology": {"type": "array", "items": {"$ref": "#/$defs/research_question"}}
+              },
+              "additionalProperties": false
+            },
+            "origin_exceptions": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"$ref": "#/$defs/origin_exception"}
+            },
+            "required_evidence": {
+              "type": "object",
+              "required": ["competitor_count", "primary_sources", "user_evidence_items", "oss_projects"],
+              "properties": {
+                "competitor_count": {"$ref": "#/$defs/threshold"},
+                "primary_sources": {"$ref": "#/$defs/threshold"},
+                "user_evidence_items": {"$ref": "#/$defs/threshold"},
+                "oss_projects": {"$ref": "#/$defs/threshold"}
+              },
+              "additionalProperties": false
+            },
+            "required_source_types": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"$ref": "common.schema.json#/$defs/machine_id"}
+            },
+            "required_visualizations": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"$ref": "common.schema.json#/$defs/machine_id"}
+            },
+            "profile_adjustments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["field", "profile_default", "requested_value", "rationale", "decision_id"],
+                "properties": {
+                  "field": {"type": "string", "minLength": 1},
+                  "profile_default": true,
+                  "requested_value": true,
+                  "rationale": {"type": "string", "minLength": 1},
+                  "decision_id": {"oneOf": [{"$ref": "common.schema.json#/$defs/decision_id"}, {"type": "null"}]}
+                },
+                "additionalProperties": false
+              }
+            },
+            "run_policy": {"$ref": "run-policy.schema.json#/$defs/policy"},
+            "stop_conditions": {
+              "type": "object",
+              "required": ["max_research_loops"],
+              "properties": {"max_research_loops": {"type": "integer", "minimum": 0}},
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "user_evidence": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "items"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "user_evidence"}}},
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "pain", "severity", "frequency_signal", "workaround", "willingness_signal", "source_id"],
+                "properties": {
+                  "id": {"type": "string", "pattern": "^UE-[A-Za-z0-9_-]+$"},
+                  "pain": {"type": "string", "minLength": 1},
+                  "severity": {"type": "integer", "minimum": 1, "maximum": 5},
+                  "frequency_signal": {"type": "integer", "minimum": 1, "maximum": 5},
+                  "workaround": {"type": ["string", "null"]},
+                  "willingness_signal": {"type": ["string", "null"]},
+                  "source_id": {"$ref": "common.schema.json#/$defs/source_id"}
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "market_landscape": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "category", "why_now", "why_not_now", "drivers", "barriers", "business_model_patterns", "platform_risks", "unknowns"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "market_landscape"}}},
+            "category": {"type": "object", "required": ["maturity"], "properties": {"maturity": {"type": ["string", "null"]}}, "additionalProperties": false},
+            "why_now": {"type": "array", "items": {"type": "string"}},
+            "why_not_now": {"type": "array", "items": {"type": "string"}},
+            "drivers": {"type": "array", "items": {"type": "string"}},
+            "barriers": {"type": "array", "items": {"type": "string"}},
+            "business_model_patterns": {"type": "array", "items": {"type": "string"}},
+            "platform_risks": {"type": "array", "items": {"type": "string"}},
+            "unknowns": {"type": "array", "items": {"type": "string"}}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "technology_landscape": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "repositories", "reuse_analysis"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "technology_landscape"}}},
+            "repositories": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "name", "url", "stars", "observed_at", "license", "maintenance", "architecture_summary", "reusable_components", "constraints"],
+                "properties": {
+                  "id": {"$ref": "common.schema.json#/$defs/machine_id"},
+                  "name": {"type": "string", "minLength": 1},
+                  "url": {"type": "string", "format": "uri"},
+                  "stars": {"type": ["integer", "null"], "minimum": 0},
+                  "observed_at": {"type": "string", "format": "date-time"},
+                  "license": {"type": ["string", "null"]},
+                  "maintenance": {"type": ["string", "null"]},
+                  "architecture_summary": {"type": ["string", "null"]},
+                  "reusable_components": {"type": "array", "items": {"type": "string"}},
+                  "constraints": {"type": "array", "items": {"type": "string"}}
+                },
+                "additionalProperties": false
+              }
+            },
+            "reuse_analysis": {
+              "type": "object",
+              "required": ["can_reuse", "should_not_rebuild", "should_not_copy", "differentiation_implications"],
+              "properties": {
+                "can_reuse": {"type": "array", "items": {"type": "string"}},
+                "should_not_rebuild": {"type": "array", "items": {"type": "string"}},
+                "should_not_copy": {"type": "array", "items": {"type": "string"}},
+                "differentiation_implications": {"type": "array", "items": {"type": "string"}}
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "research_gap": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "gaps"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "research_gap"}}},
+            "gaps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "issue_code", "target_skill", "required_action", "reuse_artifacts", "invalidate", "retry_targets", "return_to"],
+                "properties": {
+                  "id": {"type": "string", "pattern": "^GAP-[A-Za-z0-9_-]+$"},
+                  "issue_code": {"type": "string", "minLength": 1},
+                  "target_skill": {"$ref": "common.schema.json#/$defs/machine_id"},
+                  "required_action": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "reuse_artifacts": {"$ref": "common.schema.json#/$defs/artifact_refs"},
+                  "invalidate": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/machine_id"}},
+                  "retry_targets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/machine_id"}},
+                  "return_to": {"$ref": "common.schema.json#/$defs/machine_id"}
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "opportunity": {
+      "type": "object",
+      "required": ["id", "name", "description", "scores", "evidence_ids"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^OPP-[A-Za-z0-9_-]+$"},
+        "name": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1},
+        "scores": {
+          "type": "object",
+          "required": ["pain_strength", "differentiation", "feasibility", "timing", "defensibility", "mvp_cost"],
+          "properties": {
+            "pain_strength": {"type": "number"},
+            "differentiation": {"type": "number"},
+            "feasibility": {"type": "number"},
+            "timing": {"type": "number"},
+            "defensibility": {"type": "number"},
+            "mvp_cost": {"type": "number"}
+          },
+          "additionalProperties": false
+        },
+        "evidence_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/evidence_id"}}
+      },
+      "additionalProperties": false
+    },
+    "opportunity_map": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "opportunities", "recommended"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "opportunity_map"}}},
+            "opportunities": {"type": "array", "maxItems": 4, "items": {"$ref": "#/$defs/opportunity"}},
+            "recommended": {
+              "type": "object",
+              "required": ["id", "rationale"],
+              "properties": {
+                "id": {"type": "string", "pattern": "^OPP-[A-Za-z0-9_-]+$"},
+                "rationale": {"type": "array", "items": {"type": "string", "minLength": 1}}
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "opportunity_methodology": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "dimensions", "scoring_scale"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "opportunity_methodology"}}},
+            "dimensions": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/machine_id"}},
+            "scoring_scale": {"type": "object", "required": ["minimum", "maximum"], "properties": {"minimum": {"type": "number"}, "maximum": {"type": "number"}}, "additionalProperties": false}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "proof_plan": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "proof"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "proof_plan"}}},
+            "proof": {
+              "type": "object",
+              "required": ["id", "question", "hypothesis", "experiment", "inputs", "pass_criteria", "fail_criteria", "expected_artifacts"],
+              "properties": {
+                "id": {"type": "string", "pattern": "^PROOF-[A-Za-z0-9_-]+$"},
+                "question": {"type": "string", "minLength": 1},
+                "hypothesis": {"type": "string", "minLength": 1},
+                "experiment": {"type": "object", "required": ["steps"], "properties": {"steps": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}}, "additionalProperties": false},
+                "inputs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "pass_criteria": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                "fail_criteria": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                "expected_artifacts": {"type": "array", "items": {"type": "string", "minLength": 1}}
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "mvp_scope": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "phase", "goal", "must_have", "should_have", "later", "non_goals", "success_metrics", "exit_criteria"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "mvp_scope"}}},
+            "phase": {"type": "object", "required": ["id"], "properties": {"id": {"$ref": "common.schema.json#/$defs/machine_id"}}, "additionalProperties": false},
+            "goal": {"type": "string", "minLength": 1},
+            "must_have": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "should_have": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "later": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "non_goals": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+            "success_metrics": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "exit_criteria": {"type": "array", "items": {"type": "string", "minLength": 1}}
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "$ref": "#/$defs/research_contract"
+}

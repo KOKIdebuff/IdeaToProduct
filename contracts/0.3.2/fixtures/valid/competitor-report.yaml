@@ -1,0 +1,14 @@
+artifact:
+  id: ART-COMPETITOR-REPORT-001
+  type: competitor_report
+  schema_version: 0.3.2
+  version: 1
+  produced_by: {skill: competitor-report-builder, attempt: ATT-00022}
+  created_at: "2026-09-03T00:00:00Z"
+  supersedes: null
+  status: active
+report_publication_projection_ref: ART-REPORT-PUBLICATION-PROJECTION-001@1
+chart_bundle_collection_ref: ART-CHART-COLLECTION-001@1
+report_root_ref: artifacts/02-research/competitors/report-bundles/ART-COMPETITOR-REPORT-001@1/competitor-report.html
+inventory_ref: artifacts/02-research/competitors/report-bundles/ART-COMPETITOR-REPORT-001@1/inventory.json
+base_report_ref: null

@@ -33,6 +33,13 @@ from .competitor_research import (
     ConservativeCompetitorResearchProvider,
     FixtureCompetitorResearchProvider,
 )
+from .research_gap import (
+    CallbackResearchGapPlannerProvider,
+    ConservativeResearchGapPlannerProvider,
+    FixtureResearchGapPlannerProvider,
+    ResearchGapPlanner,
+    ResearchGapPlannerProvider,
+)
 
 __version__ = "0.2.0"
 
@@ -69,4 +76,9 @@ __all__ = [
     "CallbackCompetitorResearchProvider",
     "FixtureCompetitorResearchProvider",
     "ConservativeCompetitorResearchProvider",
+    "ResearchGapPlanner",
+    "ResearchGapPlannerProvider",
+    "CallbackResearchGapPlannerProvider",
+    "FixtureResearchGapPlannerProvider",
+    "ConservativeResearchGapPlannerProvider",
 ]

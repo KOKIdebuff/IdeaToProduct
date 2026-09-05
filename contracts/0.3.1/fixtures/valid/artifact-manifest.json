@@ -1,0 +1,13 @@
+{
+  "schema_version": "0.3.1",
+  "run_id": "run_20260808_001",
+  "state_version": 1,
+  "updated_at": "2026-08-08T05:10:00Z",
+  "last_event_offset": 81,
+  "current_artifacts": {
+    "idea_definition": {
+      "artifact_ref": "ART-IDEA-001@1",
+      "content_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  }
+}

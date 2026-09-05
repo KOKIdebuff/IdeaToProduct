@@ -1,0 +1,10 @@
+evidence:
+  id: EV-001
+  claim_id: CL-001
+  source_id: SRC-001
+  evidence_type: qualitative
+  direction: supports
+  relevance: high
+  reliability: high
+  freshness: high
+  notes: Supports the example claim.

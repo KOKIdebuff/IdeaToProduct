@@ -1,0 +1,44 @@
+skill:
+  id: competitor-visualization
+  version: 0.3.0
+  type: generator
+inputs:
+  required: [competitor_dataset, competitor_analysis, research_contract, product_profile]
+  optional: [source_index]
+reads:
+  - artifacts/01-contract/research-contract.yaml
+  - artifacts/02-research/competitors/competitor-dataset.json
+  - artifacts/02-research/competitors/analysis/
+  - artifacts/02-research/source-index.json
+  - profiles/
+  - templates/competitor-report.html
+writes:
+  - artifacts/02-research/competitors/visualizations/
+  - artifacts/02-research/competitors/competitor-report.html
+output_contracts:
+  - artifact_type: chart_bundle
+    write: artifacts/02-research/competitors/visualizations/
+    schema_ref: schemas/chart.schema.json#/$defs/chart_bundle
+    template_ref: null
+  - artifact_type: competitor_report
+    write: artifacts/02-research/competitors/competitor-report.html
+    schema_ref: schemas/artifact.schema.json
+    template_ref: templates/competitor-report.html
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/02-research/competitors/visualizations/
+    - artifacts/02-research/competitors/competitor-report.html
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 0
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [chart_bundle, competitor_report]
+  profile_visualizations_complete: true
+on_failure: [emit_research_gap]

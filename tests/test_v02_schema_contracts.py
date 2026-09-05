@@ -20,7 +20,7 @@ from scripts.validate_contracts import (
 
 def v02_environment():
     registry = load_version_registry()
-    bundle = resolve_contract_bundle(registry=registry)
+    bundle = resolve_contract_bundle("0.2.0", operation="audit", registry=registry)
     context = load_bundle_context(bundle)
     schemas, schema_registry = load_bundle_schemas(context)
     return context, schemas, schema_registry

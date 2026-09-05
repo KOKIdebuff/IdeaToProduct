@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Runtime Workflow State Contract",
+  "$defs": {
+    "current_interaction": {
+      "type": "object",
+      "required": ["node_id", "attempt_id", "method", "question_id", "round", "checkpoint_ref"],
+      "properties": {
+        "node_id": {"const": "idea"},
+        "attempt_id": {"$ref": "common.schema.json#/$defs/attempt_id"},
+        "method": {"$ref": "common.schema.json#/$defs/interaction_method"},
+        "question_id": {"$ref": "common.schema.json#/$defs/question_id"},
+        "round": {"type": "integer", "minimum": 1, "maximum": 8},
+        "checkpoint_ref": {"type": "string", "pattern": "^runtime/attempts/ATT-[A-Za-z0-9_-]+/checkpoints/CP-[A-Za-z0-9_-]+\\.json$"}
+      },
+      "additionalProperties": false
+    },
+    "node_state": {
+      "type": "object",
+      "required": ["status", "attempt_count", "artifact_refs"],
+      "properties": {
+        "status": {"$ref": "common.schema.json#/$defs/node_status"},
+        "attempt_count": {"type": "integer", "minimum": 0},
+        "active_attempt_id": {"$ref": "common.schema.json#/$defs/attempt_id"},
+        "interaction_checkpoint_ref": {"type": "string", "pattern": "^runtime/attempts/ATT-[A-Za-z0-9_-]+/checkpoints/CP-[A-Za-z0-9_-]+\\.json$"},
+        "artifact_refs": {"$ref": "common.schema.json#/$defs/artifact_refs"},
+        "verification_result": {"$ref": "common.schema.json#/$defs/verification_result"},
+        "gate_decision": {"$ref": "common.schema.json#/$defs/gate_decision"},
+        "feasibility_result": {"$ref": "common.schema.json#/$defs/feasibility_result"},
+        "proof_outcome": {"$ref": "common.schema.json#/$defs/proof_outcome"},
+        "skip_reason": {"enum": ["PROFILE_DISABLED", "CONDITION_NOT_MATCHED", "APPROVED_OPTIONAL_SKIP", "TERMINAL_BRANCH_NOT_SELECTED"]},
+        "error": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "common.schema.json#/$defs/structured_error"}
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "WAITING_FOR_USER"}}, "required": ["status"]},
+          "then": {"required": ["active_attempt_id", "interaction_checkpoint_ref"]}
+        },
+        {
+          "if": {"required": ["interaction_checkpoint_ref"]},
+          "then": {
+            "required": ["active_attempt_id"],
+            "properties": {"status": {"enum": ["RUNNING", "WAITING_FOR_USER"]}}
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": ["schema_version", "workflow_id", "workflow_version", "run_id", "state_version", "workflow_status", "readiness_status", "current_gate", "current_interaction", "global_research_cycle", "profile_ref", "research_contract_ref", "nodes"],
+  "properties": {
+    "schema_version": {"$ref": "common.schema.json#/$defs/schema_version"},
+    "workflow_id": {"const": "product-discovery"},
+    "workflow_version": {"$ref": "common.schema.json#/$defs/schema_version"},
+    "run_id": {"$ref": "common.schema.json#/$defs/run_id"},
+    "state_version": {"type": "integer", "minimum": 0},
+    "workflow_status": {"$ref": "common.schema.json#/$defs/workflow_status"},
+    "readiness_status": {
+      "oneOf": [
+        {"$ref": "common.schema.json#/$defs/readiness_status"},
+        {"type": "null"}
+      ]
+    },
+    "current_gate": {
+      "oneOf": [
+        {"$ref": "common.schema.json#/$defs/machine_id"},
+        {"type": "null"}
+      ]
+    },
+    "current_interaction": {
+      "oneOf": [
+        {"$ref": "#/$defs/current_interaction"},
+        {"type": "null"}
+      ]
+    },
+    "global_research_cycle": {"type": "integer", "minimum": 0},
+    "profile_ref": {"type": "string", "pattern": "^(developer_tool|ai_agent_product|consumer_app|b2b_saas)@0\\.3\\.2$"},
+    "research_contract_ref": {
+      "oneOf": [
+        {"$ref": "common.schema.json#/$defs/artifact_ref"},
+        {"type": "null"}
+      ]
+    },
+    "nodes": {
+      "type": "object",
+      "propertyNames": {"$ref": "common.schema.json#/$defs/machine_id"},
+      "additionalProperties": {"$ref": "#/$defs/node_state"}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"current_interaction": {"type": "object"}}, "required": ["current_interaction"]},
+      "then": {
+        "properties": {
+          "current_gate": {"type": "null"},
+          "workflow_status": {"const": "WAITING_FOR_USER"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"current_gate": {"type": "string"}}, "required": ["current_gate"]},
+      "then": {"properties": {"current_interaction": {"type": "null"}}}
+    }
+  ],
+  "additionalProperties": false
+}

@@ -183,6 +183,15 @@ class CompatibilityRule:
 
 
 @dataclass(frozen=True)
+class FrozenBundleManifest:
+    """A Registry-pinned inventory for a non-current immutable bundle."""
+
+    contract_version: str
+    manifest_ref: str
+    sha256: str
+
+
+@dataclass(frozen=True)
 class VersionRegistry:
     path: Path
     default_new_run_version: str
@@ -190,6 +199,7 @@ class VersionRegistry:
     default_compatibility_policy: str
     compatibility_rules: tuple[CompatibilityRule, ...]
     baseline_manifest_ref: str
+    frozen_bundle_manifests: Mapping[str, FrozenBundleManifest]
     frozen_documents_sha256: Mapping[str, str]
 
 
@@ -293,6 +303,14 @@ def load_version_registry(
         raise ContractResolutionError("Compatibility rules must have unique IDs and match identities", code="INPUT_INVALID", rule="compatibility_rule_identity")
 
     integrity = payload["integrity"]
+    frozen_bundle_manifests = {
+        contract_version: FrozenBundleManifest(
+            contract_version=contract_version,
+            manifest_ref=raw["manifest"],
+            sha256=raw["sha256"],
+        )
+        for contract_version, raw in integrity["frozen_bundle_manifests"].items()
+    }
     return VersionRegistry(
         path=path.resolve(),
         default_new_run_version=default_version,
@@ -300,6 +318,7 @@ def load_version_registry(
         default_compatibility_policy=payload["compatibility_matrix"]["default_policy"],
         compatibility_rules=rules,
         baseline_manifest_ref=integrity["baseline_manifest"],
+        frozen_bundle_manifests=frozen_bundle_manifests,
         frozen_documents_sha256=dict(integrity["frozen_documents_sha256"]),
     )
 
@@ -563,46 +582,60 @@ def evaluate_legacy_input_ref(
     )
 
 
-def verify_integrity(registry: VersionRegistry, *, repository_root: Path = REPOSITORY_ROOT) -> list[str]:
-    """Return deterministic integrity failures without modifying protected data."""
-    failures: list[str] = []
+def _verify_file_manifest(
+    manifest_path: Path,
+    *,
+    repository_root: Path,
+    expected_contract_version: str,
+    label: str,
+    expected_protected_roots: tuple[str, ...] | None = None,
+) -> list[str]:
+    """Verify a closed, repository-relative immutable file inventory."""
     try:
-        manifest_path = _relative_repository_path(
-            registry.baseline_manifest_ref,
-            repository_root=repository_root.resolve(),
-            must_exist=True,
-            expect_directory=False,
-        )
         manifest = _load_document(manifest_path)
     except (OSError, ValueError, TypeError, json.JSONDecodeError, yaml.YAMLError) as exc:
-        return [f"baseline manifest: {exc}"]
+        return [f"{label} manifest: {exc}"]
     if (
         not isinstance(manifest, dict)
-        or manifest.get("contract_version") != "0.1.0"
+        or manifest.get("contract_version") != expected_contract_version
         or not isinstance(manifest.get("protected_roots"), list)
         or not isinstance(manifest.get("files"), dict)
     ):
-        return ["baseline manifest has an invalid shape"]
+        return [f"{label} manifest has an invalid shape"]
+
+    protected_roots = manifest["protected_roots"]
+    if expected_protected_roots is not None and tuple(protected_roots) != expected_protected_roots:
+        return [f"{label} manifest protected_roots must be {list(expected_protected_roots)}"]
+
+    failures: list[str] = []
     actual_files: set[str] = set()
-    for root_ref in manifest["protected_roots"]:
-        if root_ref == "workflow.yaml":
-            if (repository_root / root_ref).is_file():
-                actual_files.add(root_ref)
+    for root_ref in protected_roots:
+        try:
+            root_path = _relative_repository_path(
+                root_ref,
+                repository_root=repository_root.resolve(),
+                must_exist=True,
+                expect_directory=None,
+            )
+        except ContractResolutionError as exc:
+            failures.append(f"{label} protected root {root_ref!r}: {exc}")
             continue
-        root_path = repository_root / root_ref
-        if root_path.is_dir():
+        if root_path.is_file():
+            actual_files.add(root_path.relative_to(repository_root).as_posix())
+        elif root_path.is_dir():
             actual_files.update(
                 path.relative_to(repository_root).as_posix()
                 for path in root_path.rglob("*")
                 if path.is_file()
             )
+
     expected_files = set(manifest["files"])
     missing_files = sorted(expected_files - actual_files)
     unexpected_files = sorted(actual_files - expected_files)
     if missing_files:
-        failures.append("baseline inventory missing: " + ", ".join(missing_files))
+        failures.append(f"{label} inventory missing: " + ", ".join(missing_files))
     if unexpected_files:
-        failures.append("baseline inventory unexpected: " + ", ".join(unexpected_files))
+        failures.append(f"{label} inventory unexpected: " + ", ".join(unexpected_files))
     for relative_path, expected_hash in sorted(manifest["files"].items()):
         try:
             path = _relative_repository_path(
@@ -617,6 +650,58 @@ def verify_integrity(registry: VersionRegistry, *, repository_root: Path = REPOS
         actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
         if actual_hash != expected_hash:
             failures.append(f"{relative_path}: expected {expected_hash}, got {actual_hash}")
+    return failures
+
+
+def verify_integrity(registry: VersionRegistry, *, repository_root: Path = REPOSITORY_ROOT) -> list[str]:
+    """Return deterministic integrity failures without modifying protected data."""
+    failures: list[str] = []
+    try:
+        baseline_manifest_path = _relative_repository_path(
+            registry.baseline_manifest_ref,
+            repository_root=repository_root.resolve(),
+            must_exist=True,
+            expect_directory=False,
+        )
+    except ContractResolutionError as exc:
+        failures.append(f"baseline manifest: {exc}")
+    else:
+        failures.extend(_verify_file_manifest(
+            baseline_manifest_path,
+            repository_root=repository_root,
+            expected_contract_version="0.1.0",
+            label="baseline",
+        ))
+
+    for contract_version, protection in sorted(registry.frozen_bundle_manifests.items()):
+        entry = registry.versions.get(contract_version)
+        if entry is None:
+            failures.append(f"frozen bundle {contract_version}: version is not registered")
+            continue
+        try:
+            manifest_path = _relative_repository_path(
+                protection.manifest_ref,
+                repository_root=repository_root.resolve(),
+                must_exist=True,
+                expect_directory=False,
+            )
+        except ContractResolutionError as exc:
+            failures.append(f"frozen bundle {contract_version} manifest: {exc}")
+            continue
+        actual_manifest_hash = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+        if actual_manifest_hash != protection.sha256:
+            failures.append(
+                f"frozen bundle {contract_version} manifest: expected {protection.sha256}, got {actual_manifest_hash}"
+            )
+            continue
+        failures.extend(_verify_file_manifest(
+            manifest_path,
+            repository_root=repository_root,
+            expected_contract_version=contract_version,
+            label=f"frozen bundle {contract_version}",
+            expected_protected_roots=(entry.bundle_root_ref,),
+        ))
+
     for filename, expected_hash in sorted(registry.frozen_documents_sha256.items()):
         path = repository_root / filename
         if not path.is_file():

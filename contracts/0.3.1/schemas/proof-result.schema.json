@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "External Proof Result Contract",
+  "type": "object",
+  "required": ["proof_result"],
+  "properties": {
+    "proof_result": {
+      "type": "object",
+      "required": ["proof_id", "submitted_at", "submitted_by", "outcome", "artifact_refs", "evidence_ids", "observed_results", "limitations", "executor_notes"],
+      "properties": {
+        "proof_id": {"type": "string", "pattern": "^PROOF-[A-Za-z0-9_-]+$"},
+        "submitted_at": {"type": "string", "format": "date-time"},
+        "submitted_by": {"type": "string", "minLength": 1},
+        "outcome": {"$ref": "common.schema.json#/$defs/proof_outcome"},
+        "artifact_refs": {"$ref": "common.schema.json#/$defs/artifact_refs"},
+        "evidence_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/evidence_id"}},
+        "observed_results": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "executor_notes": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

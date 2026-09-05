@@ -27,7 +27,7 @@ from scripts.validate_contracts import (
 
 def v02_environment():
     registry = load_version_registry()
-    context = load_bundle_context(resolve_contract_bundle(registry=registry))
+    context = load_bundle_context(resolve_contract_bundle("0.2.0", operation="audit", registry=registry))
     schemas, schema_registry = load_bundle_schemas(context)
     catalog = build_repository_catalog(context.bundle.root)
     workflow = load_document(context.workflow_path)

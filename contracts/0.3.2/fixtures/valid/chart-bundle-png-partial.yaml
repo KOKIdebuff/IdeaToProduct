@@ -1,0 +1,22 @@
+artifact:
+  id: ART-CHART-PARTIAL-001
+  type: chart_bundle
+  schema_version: 0.3.2
+  version: 1
+  produced_by: {skill: competitor-visualization, attempt: ATT-VIS-001}
+  created_at: "2026-09-01T00:00:00Z"
+  supersedes: null
+  status: active
+chart: {id: chart_feature_matrix, type: feature_matrix, renderer_kind: matrix}
+data_ref: artifacts/02-research/competitors/visualizations/feature-matrix/data.json
+chart_spec_ref: artifacts/02-research/competitors/visualizations/feature-matrix/chart-spec.json
+svg_ref: artifacts/02-research/competitors/visualizations/feature-matrix/chart.svg
+insight_ref: artifacts/02-research/competitors/visualizations/feature-matrix/insight.md
+compatibility_export: {requested: true, status: PARTIAL, error: PNG exporter unavailable.}
+observation: Verified feature coverage is shown in the canonical SVG.
+interpretation: PNG compatibility failed without replacing SVG.
+product_implication: The offline HTML remains readable through SVG.
+confidence: MEDIUM
+claim_refs: [CL-001]
+evidence_ids: [EV-001]
+limitations: [PNG compatibility export is unavailable.]

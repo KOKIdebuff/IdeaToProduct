@@ -1,0 +1,18 @@
+source:
+  id: SRC-001
+  source_type: official_documentation
+  canonical_url: https://example.com/docs
+  title: Example official documentation
+  publisher: Example Publisher
+  author: null
+  published_at: "2026-08-01T00:00:00Z"
+  accessed_at: "2026-08-08T04:00:00Z"
+  source_tier: 1
+  access_status: public
+  license_or_access_notes: Public documentation
+  content_hash: sha256:1111111111111111111111111111111111111111111111111111111111111111
+  excerpt_or_summary: A minimal summary supporting the example claim.
+  excerpt_word_count: 8
+  freshness_status: FRESH
+  untrusted_content: true
+  contains_personal_data: false

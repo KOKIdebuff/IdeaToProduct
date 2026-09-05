@@ -1,0 +1,25 @@
+rubric:
+  id: invalid_scoring
+  version: 1.0.0
+  profile_ref: developer_tool@0.3.1
+  integer_only: true
+  minimum: 1
+  maximum: 10
+  aggregation: weighted_arithmetic_mean
+  minimum_weight_coverage: 0.8
+  missing_evidence: renormalize_available_weights_partial
+  tie_break: evidence_coverage_then_shared_rank
+  change_rationale: Invalid weights.
+  changelog: [{version: 1.0.0, date: "2026-09-01", reason: Invalid test.}]
+score_bands:
+  - {minimum: 1, maximum: 2, meaning: Insufficient.}
+  - {minimum: 3, maximum: 4, meaning: Limited.}
+  - {minimum: 5, maximum: 6, meaning: Baseline.}
+  - {minimum: 7, maximum: 8, meaning: Strong.}
+  - {minimum: 9, maximum: 10, meaning: Leading.}
+dimensions:
+  - {id: a, definition: A., weight: 0.3, allowed_claim_categories: [product], minimum_evidence_count: 1}
+  - {id: b, definition: B., weight: 0.2, allowed_claim_categories: [product], minimum_evidence_count: 1}
+  - {id: c, definition: C., weight: 0.2, allowed_claim_categories: [product], minimum_evidence_count: 1}
+  - {id: d, definition: D., weight: 0.2, allowed_claim_categories: [product], minimum_evidence_count: 1}
+  - {id: e, definition: E., weight: 0.2, allowed_claim_categories: [product], minimum_evidence_count: 1}

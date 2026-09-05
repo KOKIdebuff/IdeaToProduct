@@ -1,0 +1,34 @@
+skill:
+  id: research-gap
+  version: 0.3.1
+  type: planner
+inputs:
+  required: [research_verification]
+  optional: [evidence_waiver_decision]
+reads:
+  - artifacts/03-analysis/research-verification.yaml
+writes:
+  - artifacts/03-analysis/research-gap.yaml
+output_contracts:
+  - artifact_type: research_gap
+    write: artifacts/03-analysis/research-gap.yaml
+    schema_ref: schemas/research.schema.json#/$defs/research_gap
+    template_ref: null
+evidence:
+  required: false
+  provenance_required: false
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/03-analysis/research-gap.yaml
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 0
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [research_gap]
+  retry_targets_resolve: true
+  return_to: research-verifier
+on_failure: []

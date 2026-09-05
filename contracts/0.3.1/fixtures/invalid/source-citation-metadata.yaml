@@ -1,0 +1,20 @@
+source:
+  id: SRC-CITATION-BROKEN
+  source_type: official_documentation
+  canonical_url: null
+  title: Broken citation source
+  publisher: Example Publisher
+  author: null
+  published_at: null
+  accessed_at: "2026-09-01T00:00:00Z"
+  source_tier: 1
+  access_status: public
+  license_or_access_notes: null
+  content_hash: null
+  excerpt_or_summary: null
+  excerpt_word_count: null
+  citation_metadata:
+    publisher_short_name: Example
+  freshness_status: UNKNOWN
+  untrusted_content: true
+  contains_personal_data: false

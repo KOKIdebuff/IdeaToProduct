@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import uuid
 from dataclasses import replace
@@ -32,6 +34,7 @@ from .domain import (
     deep_thaw,
 )
 from .errors import RuntimeContractError
+from .fact_provenance import canonical_value_hash, json_pointer_value
 from .graph import CompiledBundle, compile_bundle
 from .executor import validate_executor_request as validate_request_proposal
 from .executor import validate_executor_result as validate_result_proposal
@@ -45,8 +48,8 @@ from .runtime_state import (
     submit_external_proof as submit_external_proof_state,
     submit_gate_decision as submit_gate_decision_state,
 )
-from .storage import RecoveryReport, RunStorage, StoredArtifact, declared_workspace_path_matches
-from .invalidation import InvalidationResult, invalidate_downstream, resume_invalidated
+from .storage import RecoveryReport, RunStorage, StoredArtifact, _safe_relative, declared_workspace_path_matches
+from .invalidation import InvalidationResult, invalidate_downstream, invalidate_many, resume_invalidated
 from .transitions import transition_node
 
 
@@ -288,13 +291,15 @@ class RuntimeKernel:
         claim_records: Sequence[Mapping[str, Any]],
         *,
         source_index: Sequence[Mapping[str, Any]] | None = None,
-    ) -> tuple[tuple[Mapping[str, Any], ...], tuple[Mapping[str, Any], ...]]:
-        """Return the merged, validated private Evidence/Claim sidecar state."""
+        fact_binding_records: Sequence[Mapping[str, Any]] = (),
+    ) -> tuple[tuple[Mapping[str, Any], ...], tuple[Mapping[str, Any], ...], tuple[Mapping[str, Any], ...]]:
+        """Return the merged, validated private Evidence/Claim/Fact sidecar state."""
 
         storage = self._storage_for(snapshot.run_id)
-        existing_evidence, existing_claims = storage.read_research_provenance(snapshot.state_version)
+        existing_evidence, existing_claims, existing_fact_bindings = storage.read_research_provenance(snapshot.state_version)
         evidence: dict[str, Mapping[str, Any]] = {}
         claims: dict[str, Mapping[str, Any]] = {}
+        fact_bindings: dict[str, Mapping[str, Any]] = {}
 
         def merge(target: dict[str, Mapping[str, Any]], raw: Mapping[str, Any], *, wrapper: str, schema: str, rule: str) -> None:
             document = {wrapper: deep_thaw(raw)}
@@ -316,6 +321,27 @@ class RuntimeKernel:
         for item in claim_records:
             merge(claims, item, wrapper="claim", schema="claim.schema.json", rule="provenance_claim")
 
+        def merge_fact_binding(raw: Mapping[str, Any], *, rule: str) -> None:
+            document = deep_thaw(raw)
+            self._validate_schema_ref(
+                document,
+                "schemas/competitor.schema.json#/$defs/fact_binding",
+                self.compiled_bundle_for(snapshot),
+                rule=rule,
+            )
+            identifier = document.get("fact_id")
+            if not isinstance(identifier, str):
+                raise RuntimeContractError("Fact Binding has no identity", code="SCHEMA_INVALID", rule=rule)
+            previous = fact_bindings.get(identifier)
+            if previous is not None and deep_thaw(previous) != document:
+                raise RuntimeContractError("Fact Binding identity conflicts with existing content", code="STATE_VERSION_CONFLICT", rule="fact_binding_identity")
+            fact_bindings[identifier] = document
+
+        for item in existing_fact_bindings:
+            merge_fact_binding(item, rule="provenance_read")
+        for item in fact_binding_records:
+            merge_fact_binding(item, rule="fact_binding")
+
         sources = {item.get("id") for item in (source_index if source_index is not None else self._merged_source_index(snapshot, ())) if isinstance(item, Mapping)}
         for item in evidence.values():
             if item.get("source_id") not in sources:
@@ -325,10 +351,122 @@ class RuntimeKernel:
             if any(reference not in evidence for reference in references):
                 raise RuntimeContractError("Claim references missing Evidence", code="SCHEMA_INVALID", rule="provenance_evidence_ref")
 
+        current_artifact_refs = {
+            reference
+            for state in snapshot.node_states.values()
+            if state.artifact_refs
+            for reference in (state.artifact_refs[-1],)
+        }
+        for binding in fact_bindings.values():
+            origin_ref = binding.get("origin_artifact_ref")
+            if origin_ref not in current_artifact_refs:
+                raise RuntimeContractError("Fact Binding references a non-current Artifact", code="SCHEMA_INVALID", rule="fact_binding_origin")
+            origin = storage.read_artifact(str(origin_ref))
+            value = json_pointer_value(origin, str(binding.get("origin_field_pointer")), rule="fact_binding_pointer")
+            if canonical_value_hash(value) != binding.get("content_hash"):
+                raise RuntimeContractError("Fact Binding content identity does not match its origin", code="SCHEMA_INVALID", rule="fact_binding_hash")
+            expected_fact_id = "FACT-COMP-" + hashlib.sha256(
+                f"{origin_ref}\0{binding.get('origin_field_pointer')}\0{binding.get('content_hash')}".encode("utf-8")
+            ).hexdigest()[:20].upper()
+            if binding.get("fact_id") != expected_fact_id:
+                raise RuntimeContractError("Fact Binding identity is not deterministically derived", code="SCHEMA_INVALID", rule="fact_binding_identity")
+            claim_refs = tuple(binding.get("claim_refs", ()))
+            evidence_refs = tuple(binding.get("evidence_refs", ()))
+            source_refs = tuple(binding.get("source_refs", ()))
+            if any(reference not in claims for reference in claim_refs):
+                raise RuntimeContractError("Fact Binding references missing Claim", code="SCHEMA_INVALID", rule="fact_binding_claim_ref")
+            expected_evidence = {
+                evidence_id
+                for claim_id in claim_refs
+                for evidence_id in claims[claim_id].get("evidence_ids", ())
+            }
+            if set(evidence_refs) != expected_evidence or any(reference not in evidence for reference in evidence_refs):
+                raise RuntimeContractError("Fact Binding Evidence closure is invalid", code="SCHEMA_INVALID", rule="fact_binding_evidence_ref")
+            expected_sources = {evidence[evidence_id].get("source_id") for evidence_id in evidence_refs}
+            if set(source_refs) != expected_sources or any(reference not in sources for reference in source_refs):
+                raise RuntimeContractError("Fact Binding Source closure is invalid", code="SCHEMA_INVALID", rule="fact_binding_source_ref")
+
         return (
             tuple(evidence[key] for key in sorted(evidence)),
             tuple(claims[key] for key in sorted(claims)),
+            tuple(fact_bindings[key] for key in sorted(fact_bindings)),
         )
+
+    def _report_projection_input_refs(self, snapshot: RunSnapshot) -> tuple[str, ...]:
+        """Return the current verified T18 input Artifact refs in stable order."""
+
+        def required_ref(address: NodeAddress) -> str:
+            state = snapshot.node_states.get(address)
+            if state is None or state.status is not NodeStatus.VERIFIED or not state.artifact_refs:
+                raise RuntimeContractError("Report Projection input Artifact is not verified", code="DEPENDENCY_NOT_READY", rule="report_projection_input")
+            return state.artifact_refs[-1]
+
+        contract_ref = snapshot.research_contract_ref
+        if not isinstance(contract_ref, str) or not contract_ref:
+            raise RuntimeContractError("Report Projection requires a verified Research Contract", code="DEPENDENCY_NOT_READY", rule="report_projection_input")
+        refs = [
+            contract_ref,
+            required_ref(NodeAddress(("competitor",), "discovery")),
+            required_ref(NodeAddress(("competitor",), "candidate_ranking")),
+        ]
+        deep_dive_addresses = sorted(
+            address
+            for address in snapshot.node_states
+            if address.graph_path == ("competitor",) and address.node_id == "deep_dive" and address.instance_key is not None
+        )
+        if not deep_dive_addresses:
+            raise RuntimeContractError("Report Projection requires selected Deep Dive Artifacts", code="DEPENDENCY_NOT_READY", rule="report_projection_input")
+        refs.extend(required_ref(address) for address in deep_dive_addresses)
+        refs.append(required_ref(NodeAddress(("competitor",), "normalizer")))
+        refs.extend(
+            required_ref(NodeAddress(("competitor",), node_id))
+            for node_id in ("feature_analysis", "traction_analysis", "review_analysis", "pricing_analysis")
+        )
+        return tuple(refs)
+
+    def _validate_report_projection_resume(self, snapshot: RunSnapshot) -> None:
+        """Verify a completed T18 Projection against its persisted state view."""
+
+        address = NodeAddress(("competitor",), "fact_provenance")
+        state = snapshot.node_states.get(address)
+        if state is None or state.status is not NodeStatus.VERIFIED:
+            return
+        if not state.artifact_refs:
+            raise RuntimeContractError("Verified Fact Provenance has no Projection Artifact", code="SCHEMA_INVALID", rule="report_projection_resume")
+        projection_ref = state.artifact_refs[-1]
+        storage = self._storage_for(snapshot.run_id)
+        manifest = storage._manifest() or {}
+        current = manifest.get("current_artifacts", {}).get("report_projection")
+        if not isinstance(current, Mapping) or current.get("artifact_ref") != projection_ref:
+            raise RuntimeContractError("Current Manifest Projection reference is invalid", code="SCHEMA_INVALID", rule="report_projection_resume")
+        projection = storage.read_artifact(projection_ref)
+        self._validate_schema_ref(
+            projection,
+            "schemas/competitor.schema.json#/$defs/report_projection",
+            self.compiled_bundle_for(snapshot),
+            rule="report_projection_resume",
+        )
+        input_state_version = projection.get("input_state_version")
+        if not isinstance(input_state_version, int) or input_state_version > snapshot.state_version:
+            raise RuntimeContractError("Report Projection state version is invalid", code="SCHEMA_INVALID", rule="report_projection_resume")
+        if tuple(projection.get("input_artifact_refs", ())) != self._report_projection_input_refs(snapshot):
+            raise RuntimeContractError("Report Projection input Artifacts do not match the current state", code="SCHEMA_INVALID", rule="report_projection_resume")
+        _evidence, _claims, fact_bindings = storage.read_research_provenance(input_state_version)
+        projected_facts = [
+            fact
+            for group in projection.get("fact_groups", ())
+            if isinstance(group, Mapping)
+            for fact in group.get("facts", ())
+        ]
+        if tuple(sorted(projected_facts, key=lambda item: item.get("fact_id", ""))) != fact_bindings:
+            raise RuntimeContractError("Report Projection facts do not match the effective Fact Bindings", code="SCHEMA_INVALID", rule="report_projection_resume")
+        closure = {
+            "claim_ids": sorted({claim_id for item in fact_bindings for claim_id in item.get("claim_refs", ())}),
+            "evidence_ids": sorted({evidence_id for item in fact_bindings for evidence_id in item.get("evidence_refs", ())}),
+            "source_ids": sorted({source_id for item in fact_bindings for source_id in item.get("source_refs", ())}),
+        }
+        if projection.get("citation_closure") != closure:
+            raise RuntimeContractError("Report Projection Citation Closure is invalid", code="SCHEMA_INVALID", rule="report_projection_resume")
 
     def _persist(
         self,
@@ -435,7 +573,7 @@ class RuntimeKernel:
     def compiled_bundle_for(self, snapshot: RunSnapshot) -> CompiledBundle:
         key = (snapshot.contract_version, snapshot.profile_ref.rsplit("@", 1)[0])
         if key not in self._bundle_cache:
-            self._bundle_cache[key] = compile_bundle(self.repository_root, key[1], key[0])
+            self._bundle_cache[key] = compile_bundle(self.repository_root, key[1], key[0], operation="resume")
         return self._bundle_cache[key]
 
     def schedule(
@@ -534,6 +672,7 @@ class RuntimeKernel:
         storage = self._storage_for(run_id)
         snapshot = storage.load_snapshot()
         self._validate_wire_state(snapshot, self.compiled_bundle_for(snapshot))
+        self._validate_report_projection_resume(snapshot)
         return snapshot
 
     def recover_run(self, run_id: str) -> RecoveryReport:
@@ -541,6 +680,7 @@ class RuntimeKernel:
         report = storage.recover()
         snapshot = storage.load_snapshot()
         self._validate_wire_state(snapshot, self.compiled_bundle_for(snapshot))
+        self._validate_report_projection_resume(snapshot)
         return report
 
     def schedule_persisted(
@@ -701,6 +841,7 @@ class RuntimeKernel:
         source_records: Sequence[Mapping[str, Any]] = (),
         evidence_records: Sequence[Mapping[str, Any]] = (),
         claim_records: Sequence[Mapping[str, Any]] = (),
+        fact_binding_records: Sequence[Mapping[str, Any]] = (),
     ) -> RunSnapshot:
         """Atomically finish and verify a Kernel-owned business Skill Attempt.
 
@@ -732,12 +873,13 @@ class RuntimeKernel:
         # candidate for recovery; the Current Manifest remains the effective
         # commit point for a fully validated write.
         provenance = None
-        if evidence_records or claim_records:
+        if evidence_records or claim_records or fact_binding_records:
             provenance = self._merged_research_provenance(
                 snapshot,
                 evidence_records,
                 claim_records,
                 source_index=source_index,
+                fact_binding_records=fact_binding_records,
             )
 
         storage = self._storage_for(run_id)
@@ -788,6 +930,7 @@ class RuntimeKernel:
                 schema_version=completed.contract_version,
                 evidence=provenance[0],
                 claims=provenance[1],
+                fact_bindings=provenance[2],
             )
         manifest_updates = {
             item.artifact_type: {"artifact_ref": item.artifact_ref, "content_hash": item.content_hash}
@@ -810,6 +953,345 @@ class RuntimeKernel:
         )
         self._persist(completed, manifest_updates=manifest_updates, events=tuple(audit_events))
         return completed
+
+    @staticmethod
+    def _artifact_content_hash(document: Mapping[str, Any]) -> str:
+        """Return the Storage-compatible digest for a Runtime-owned Artifact."""
+
+        payload = deep_thaw(document)
+        artifact = payload.get("artifact")
+        if isinstance(artifact, dict):
+            artifact.pop("content_hash", None)
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+    def _research_gap_input(
+        self,
+        snapshot: RunSnapshot,
+        attempt_id: str,
+    ) -> tuple[Mapping[str, Any], Mapping[str, str], tuple[str, ...]]:
+        """Load the current verified input and constrained retry surface for T9.
+
+        The method is deliberately shared by the Provider request and the
+        commit path.  The commit path calls it again after the Provider returns
+        so a stale proposal cannot race a newer Manifest state into storage.
+        """
+
+        attempt = next((item for item in snapshot.attempts if item.attempt_id == attempt_id), None)
+        address = NodeAddress((), "research_gap")
+        state = snapshot.node_states.get(address)
+        if (
+            attempt is None
+            or attempt.address != address
+            or attempt.status is not AttemptStatus.RUNNING
+            or state is None
+            or state.status is not NodeStatus.RUNNING
+            or state.active_attempt_id != attempt_id
+        ):
+            raise RuntimeContractError("Research Gap requires an active top-level research_gap Attempt", rule="research_gap_attempt")
+
+        verifier_address = NodeAddress((), "research_verifier")
+        verifier_state = snapshot.node_states.get(verifier_address)
+        if verifier_state is None or verifier_state.status is not NodeStatus.VERIFIED or not verifier_state.artifact_refs:
+            raise RuntimeContractError(
+                "Research Gap requires a verified Research Verification Artifact",
+                code="DEPENDENCY_NOT_READY",
+                rule="research_gap_verification",
+            )
+        verification_ref = verifier_state.artifact_refs[-1]
+        storage = self._storage_for(snapshot.run_id)
+        manifest = storage._manifest() or {}
+        current = manifest.get("current_artifacts", {}).get("research_verification")
+        if not isinstance(current, Mapping) or current.get("artifact_ref") != verification_ref:
+            raise RuntimeContractError(
+                "Research Verification input is not the current Manifest Artifact",
+                code="STATE_VERSION_CONFLICT",
+                rule="research_gap_verification_current",
+            )
+        if verification_ref not in attempt.input_artifact_refs:
+            raise RuntimeContractError(
+                "Research Gap Attempt was not planned from the current Research Verification Artifact",
+                code="STATE_VERSION_CONFLICT",
+                rule="research_gap_input_ref",
+            )
+        verification = storage.read_artifact(verification_ref)
+        self._validate_schema_ref(
+            verification,
+            "schemas/verification.schema.json#/$defs/research_verification",
+            self.compiled_bundle_for(snapshot),
+            rule="research_gap_verification_schema",
+        )
+
+        verification_summary = verification.get("verification")
+        if not isinstance(verification_summary, Mapping):
+            raise RuntimeContractError("Research Verification has no summary", code="SCHEMA_INVALID", rule="research_gap_verification_schema")
+        waiver_state = snapshot.node_states.get(NodeAddress((), "evidence_waiver"))
+        waiver_requested = (
+            waiver_state is not None
+            and waiver_state.status is NodeStatus.APPROVED
+            and waiver_state.gate_decision is GateDecision.REQUEST_MORE_RESEARCH
+        )
+        if verification_summary.get("overall") != "FAIL" and not waiver_requested:
+            raise RuntimeContractError(
+                "Research Gap may run only after FAIL verification or an approved REQUEST_MORE_RESEARCH waiver",
+                code="GATE_NOT_APPROVED",
+                rule="research_gap_trigger",
+            )
+
+        bundle = self.compiled_bundle_for(snapshot)
+        branch_skills = {
+            "competitor": "competitor-discovery",
+            "users": "user-evidence",
+            "market": "market-landscape",
+            "technology": "oss-tech-landscape",
+        }
+        enabled = {
+            node_id: skill_id
+            for node_id, skill_id in branch_skills.items()
+            if bundle.definition(NodeAddress((), node_id)).enabled
+            and snapshot.node_states.get(NodeAddress((), node_id), NodeState()).status is not NodeStatus.SKIPPED
+        }
+        current_artifact_refs = tuple(
+            sorted(
+                {
+                    reference
+                    for node_state in snapshot.node_states.values()
+                    if node_state.status is not NodeStatus.INVALIDATED
+                    for reference in node_state.artifact_refs
+                }
+            )
+        )
+        request = deep_freeze(
+            {
+                "run_id": snapshot.run_id,
+                "attempt_id": attempt_id,
+                "research_verification_ref": verification_ref,
+                "research_verification": deep_thaw(verification),
+                "evidence_waiver_decision": waiver_state.gate_decision.value if waiver_requested else None,
+                "enabled_branches": dict(enabled),
+                "current_artifact_refs": list(current_artifact_refs),
+            }
+        )
+        return request, deep_freeze(enabled), current_artifact_refs
+
+    def research_gap_request(self, run_id: str, attempt_id: str) -> Mapping[str, Any]:
+        """Return immutable, validated context for a configured Gap Planner Provider."""
+
+        snapshot = self.load_run(run_id)
+        request, _enabled, _refs = self._research_gap_input(snapshot, attempt_id)
+        return request
+
+    def complete_persisted_research_gap(
+        self,
+        run_id: str,
+        attempt_id: str,
+        proposal: Mapping[str, Any],
+    ) -> tuple[RunSnapshot, StoredArtifact, InvalidationResult, tuple[NodeAddress, ...]]:
+        """Persist and apply one bounded Research Gap through the single writer.
+
+        Providers supply only the untrusted ``gaps`` content.  This method
+        reconstructs the Artifact header, validates all Semantic references,
+        then commits the Artifact, cycle count, and multi-root invalidation as
+        one visible Snapshot/Manifest change.
+        """
+
+        if not isinstance(proposal, Mapping) or set(proposal) != {"gaps"} or not isinstance(proposal.get("gaps"), list):
+            raise RuntimeContractError("Research Gap Provider must return exactly a gaps list", code="SCHEMA_INVALID", rule="research_gap_provider")
+
+        snapshot = self.load_run(run_id)
+        request, enabled_branches, current_artifact_refs = self._research_gap_input(snapshot, attempt_id)
+        if snapshot.global_research_cycle >= snapshot.run_policy.max_global_research_cycles:
+            raise RuntimeContractError(
+                "Research Gap would exceed the Run global research-cycle limit",
+                code="RESEARCH_LIMIT_REACHED",
+                rule="research_gap_cycle_limit",
+            )
+
+        verification = request["research_verification"]
+        summary = verification["verification"]
+        issues = tuple(summary["critical_issues"]) + tuple(summary["non_critical_issues"])
+        issue_codes = tuple(issue["code"] for issue in issues)
+        if not issue_codes or len(issue_codes) != len(set(issue_codes)):
+            raise RuntimeContractError(
+                "Research Verification issues must be non-empty and have unambiguous codes before a Gap is planned",
+                code="SCHEMA_INVALID",
+                rule="research_gap_issue_identity",
+            )
+
+        gaps = [deep_thaw(item) for item in proposal["gaps"]]
+        proposed_codes: list[str] = []
+        gap_ids: list[str] = []
+        retry_roots: list[NodeAddress] = []
+        storage = self._storage_for(run_id)
+        for gap in gaps:
+            if not isinstance(gap, Mapping):
+                raise RuntimeContractError("Research Gap entries must be objects", code="SCHEMA_INVALID", rule="research_gap_entry")
+            issue_code = gap.get("issue_code")
+            if not isinstance(issue_code, str):
+                raise RuntimeContractError("Research Gap entry has no issue_code", code="SCHEMA_INVALID", rule="research_gap_issue_ref")
+            proposed_codes.append(issue_code)
+            gap_id = gap.get("id")
+            if not isinstance(gap_id, str):
+                raise RuntimeContractError("Research Gap entry has no id", code="SCHEMA_INVALID", rule="research_gap_entry")
+            gap_ids.append(gap_id)
+            target_skill = gap.get("target_skill")
+            root_id = next((node_id for node_id, skill_id in enabled_branches.items() if skill_id == target_skill), None)
+            if root_id is None:
+                raise RuntimeContractError(
+                    "Research Gap target_skill is not an enabled top-level Research branch",
+                    code="INPUT_INVALID",
+                    rule="research_gap_target_skill",
+                    details={"target_skill": target_skill},
+                )
+            retry_targets = gap.get("retry_targets")
+            if retry_targets != [root_id]:
+                raise RuntimeContractError(
+                    "Research Gap retry_targets must exactly select the target_skill branch root",
+                    code="INPUT_INVALID",
+                    rule="research_gap_retry_targets",
+                    details={"target_skill": target_skill, "retry_targets": retry_targets},
+                )
+            if gap.get("return_to") != "research_verifier":
+                raise RuntimeContractError("Research Gap must return to research_verifier", code="INPUT_INVALID", rule="research_gap_return")
+            if set(gap.get("invalidate", ())) != {"research_verifier", "evidence_waiver", "research_synthesis"}:
+                raise RuntimeContractError(
+                    "Research Gap must invalidate exactly the stale verification, waiver, and synthesis nodes",
+                    code="INPUT_INVALID",
+                    rule="research_gap_invalidation",
+                )
+            reuse_artifacts = gap.get("reuse_artifacts")
+            if not isinstance(reuse_artifacts, list) or any(reference not in current_artifact_refs for reference in reuse_artifacts):
+                raise RuntimeContractError(
+                    "Research Gap reuse_artifacts must reference current Run Artifacts",
+                    code="INPUT_INVALID",
+                    rule="research_gap_reuse_artifacts",
+                )
+            for reference in reuse_artifacts:
+                storage.read_artifact(reference)
+            retry_roots.append(NodeAddress((), root_id))
+
+        if (
+            len(gap_ids) != len(set(gap_ids))
+            or len(proposed_codes) != len(set(proposed_codes))
+            or set(proposed_codes) != set(issue_codes)
+        ):
+            raise RuntimeContractError(
+                "Research Gap must cover each current Verification issue exactly once",
+                code="INPUT_INVALID",
+                rule="research_gap_issue_coverage",
+                details={"expected": tuple(sorted(issue_codes)), "actual": tuple(sorted(proposed_codes))},
+            )
+        retry_roots = list(dict.fromkeys(retry_roots))
+        if set(address.node_id for address in retry_roots) == set(enabled_branches):
+            raise RuntimeContractError(
+                "Research Gap cannot retry every enabled Research branch",
+                code="INPUT_INVALID",
+                rule="research_gap_broad_retry",
+            )
+
+        attempt = next(item for item in snapshot.attempts if item.attempt_id == attempt_id)
+        manifest = storage._manifest() or {}
+        previous_gap = manifest.get("current_artifacts", {}).get("research_gap")
+        supersedes = previous_gap.get("artifact_ref") if isinstance(previous_gap, Mapping) and isinstance(previous_gap.get("artifact_ref"), str) else None
+        document: dict[str, Any] = {
+            "artifact": {
+                "id": f"ART-GAP-{snapshot.run_id.removeprefix('run_').upper()}-{attempt_id.removeprefix('ATT-')}",
+                "type": "research_gap",
+                "schema_version": snapshot.contract_version,
+                "version": 1,
+                "produced_by": {"skill": attempt.skill_ref.rsplit("@", 1)[0], "attempt": attempt_id},
+                "created_at": self.clock.now(),
+                "supersedes": supersedes,
+                "status": "active",
+            },
+            "gaps": gaps,
+        }
+        document["artifact"]["content_hash"] = self._artifact_content_hash(document)
+        self._validate_typed_output(snapshot, attempt_id, "artifacts/03-analysis/research-gap.yaml", document)
+
+        stored = storage.write_artifact(snapshot, attempt_id, "artifacts/03-analysis/research-gap.yaml", document)
+        result = {
+            "executor_result": {
+                "schema_version": snapshot.contract_version,
+                "run_id": run_id,
+                "node_id": "research_gap",
+                "attempt_id": attempt_id,
+                "status": "COMPLETED",
+                "output_artifact_refs": [stored.artifact_ref],
+                "source_upserts": [],
+                "usage": {
+                    "automated_duration_seconds": 0,
+                    "source_count": 0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "estimated_cost": 0,
+                },
+                "error": None,
+            }
+        }
+        application = self.apply_executor_result(snapshot, attempt_id, result)
+        bundle = self.compiled_bundle_for(snapshot)
+        states = dict(application.next_snapshot.node_states)
+        completed_state = states[attempt.address]
+        verifying_state = transition_node(bundle.definition(attempt.address), completed_state, NodeStatus.VERIFYING)
+        states[attempt.address] = transition_node(bundle.definition(attempt.address), verifying_state, NodeStatus.VERIFIED)
+        attempts = list(application.next_snapshot.attempts)
+        position = next(index for index, item in enumerate(attempts) if item.attempt_id == attempt_id)
+        attempts[position] = replace(attempts[position], verified=True)
+        completed = replace(
+            application.next_snapshot,
+            node_states=states,
+            attempts=tuple(attempts),
+            global_research_cycle=snapshot.global_research_cycle + 1,
+        )
+        invalidation_roots = list(retry_roots)
+        if NodeAddress((), "competitor") in retry_roots:
+            # ``competitor`` is a top-level Subgraph container.  Its retained
+            # child states would otherwise let a retry aggregate historical
+            # work without rerunning discovery.  This is still a branch-root
+            # retry: it does not expose or accept an instance-level target.
+            invalidation_roots.extend(
+                address
+                for address in completed.node_states
+                if address.graph_path == ("competitor",)
+            )
+        invalidation = invalidate_many(completed, bundle, invalidation_roots, include_roots=True)
+        invalidated_snapshot = invalidation.next_snapshot
+        if NodeAddress((), "competitor") in retry_roots:
+            # Discard only the dynamic fan-out state, never its immutable
+            # Attempt/Artifact history.  A rerun may select a different set of
+            # competitors, and the next ranking result must therefore be able
+            # to establish a fresh Deep Dive expansion instead of colliding
+            # with stale instance keys.
+            states = dict(invalidated_snapshot.node_states)
+            for address in tuple(states):
+                if address.graph_path == ("competitor",) and address.node_id == "deep_dive" and address.instance_key is not None:
+                    states.pop(address)
+            fanouts = dict(invalidated_snapshot.fanout_instances)
+            fanouts.pop(NodeAddress(("competitor",), "deep_dive"), None)
+            invalidated_snapshot = replace(invalidated_snapshot, node_states=states, fanout_instances=fanouts)
+        final_snapshot = replace(
+            invalidated_snapshot,
+            state_version=completed.state_version,
+            global_research_cycle=completed.global_research_cycle,
+        )
+        final_invalidation = InvalidationResult(final_snapshot, invalidation.invalidated, invalidation.removed_artifact_types)
+        manifest_updates = {stored.artifact_type: {"artifact_ref": stored.artifact_ref, "content_hash": stored.content_hash}}
+        audit_events: list[Mapping[str, Any]] = [
+            {"event": "ARTIFACT_WRITTEN", "artifact": stored.artifact_ref, "attempt": attempt_id},
+            {"event": "RESEARCH_GAP_PLANNED", "node": "research_gap", "attempt": attempt_id},
+            {"event": "RESEARCH_CYCLE_STARTED", "node": "research_gap", "attempt": attempt_id},
+            {"event": "NODE_COMPLETED", "node": "research_gap", "attempt": attempt_id},
+            {"event": "NODE_VERIFIED", "node": "research_gap", "attempt": attempt_id},
+        ]
+        audit_events.extend({"event": "NODE_INVALIDATED", "node": address.node_id} for address in final_invalidation.invalidated)
+        self._persist(
+            final_snapshot,
+            manifest_updates=manifest_updates,
+            manifest_remove_types=final_invalidation.removed_artifact_types,
+            events=tuple(audit_events),
+        )
+        return final_snapshot, stored, final_invalidation, tuple(retry_roots)
 
     def persist_idea_interaction(
         self,
@@ -1151,10 +1633,35 @@ class RuntimeKernel:
         snapshot = self.load_run(run_id)
         result = invalidate_downstream(snapshot, self.compiled_bundle_for(snapshot), changed_address)
         if result.next_snapshot is not snapshot:
+            storage = self._storage_for(run_id)
+            evidence, claims, fact_bindings = storage.read_research_provenance(snapshot.state_version)
+            stale_addresses = (changed_address, *result.invalidated)
+            stale_refs = {
+                reference
+                for address in stale_addresses
+                for reference in snapshot.node_states.get(address, NodeState()).artifact_refs
+            }
+            effective_bindings = tuple(
+                binding
+                for binding in fact_bindings
+                if binding.get("origin_artifact_ref") not in stale_refs
+            )
+            provenance_updated = len(effective_bindings) != len(fact_bindings)
+            if provenance_updated:
+                storage.write_research_provenance(
+                    state_version=result.next_snapshot.state_version,
+                    schema_version=result.next_snapshot.contract_version,
+                    evidence=evidence,
+                    claims=claims,
+                    fact_bindings=effective_bindings,
+                )
             self._persist(
                 result.next_snapshot,
                 manifest_remove_types=result.removed_artifact_types,
-                events=tuple({"event": "NODE_INVALIDATED", "node": address.node_id} for address in result.invalidated),
+                events=(
+                    *tuple({"event": "NODE_INVALIDATED", "node": address.node_id} for address in result.invalidated),
+                    *(({"event": "RESEARCH_PROVENANCE_UPDATED", "node": changed_address.node_id},) if provenance_updated else ()),
+                        ),
             )
         return result
 

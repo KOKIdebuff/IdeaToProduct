@@ -1,0 +1,70 @@
+artifact:
+  id: ART-IDEA-002
+  type: idea_definition
+  schema_version: 0.3.0
+  version: 1
+  produced_by:
+    skill: idea-intake
+    attempt: ATT-00002
+  created_at: "2026-08-08T04:00:00Z"
+  supersedes: null
+  status: active
+idea:
+  original: Build an evidence-grounded product discovery workflow.
+  normalized_summary: Build an auditable, evidence-grounded product discovery workflow.
+problem:
+  statement: Product decisions are difficult to audit and reproduce.
+  trigger: Teams need to justify a product direction before implementation.
+  current_alternative: Ad hoc documents and unversioned research notes.
+  pain_hypothesis: Lost provenance causes repeated research and weak decisions.
+target_users:
+  primary: [product builders]
+  secondary: [research reviewers]
+scenario:
+  primary_context: A team is evaluating a new product idea.
+  trigger: The team needs a reviewable recommendation.
+  desired_outcome: A reproducible evidence trail from idea to PRD.
+jtbd:
+  functional: Structure product discovery into verifiable artifacts.
+  emotional: Reduce uncertainty before implementation.
+  social: Make product decisions reviewable by collaborators.
+value_proposition:
+  core_value: Auditable discovery decisions.
+  why_better_hypothesis: Versioned contracts reduce hidden assumptions and drift.
+solution:
+  direction_hypothesis: Persist contracts and evidence as versioned artifacts.
+  alternatives_considered: [Use an unstructured research notebook]
+  core_mechanism: Contract-driven workflow with evidence and verification links.
+scope:
+  initial_boundary: Static discovery contracts and validation.
+  non_goals: [Implement a production runtime]
+assumptions:
+  - id: ASM-001
+    type: problem
+    claim: Product builders need auditable discovery decisions.
+    status: VALIDATED
+    criticality: high
+unknowns:
+  - id: UNK-001
+    dimension: value
+    question: Which evidence thresholds are sufficient?
+    researchable: true
+research_seeds:
+  competitor_questions: ["Which alternatives solve the same workflow?"]
+  user_questions: ["Which user pains are supported by evidence?"]
+  market_questions: ["Why is the category timely?"]
+  technology_questions: ["Which OSS components are reusable?"]
+clarity:
+  problem: HIGH
+  user: MEDIUM
+  scenario: MEDIUM
+  value: MEDIUM
+  mechanism: MEDIUM
+  overall: PARTIAL
+confidence:
+  overall: low
+  basis: Pre-research hypothesis; no claim has been validated.
+shaping:
+  mode: PARTIAL
+  rounds_used: 3
+  completion_outcome: PARTIAL_RESEARCHABLE

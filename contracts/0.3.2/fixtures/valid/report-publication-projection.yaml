@@ -1,0 +1,28 @@
+artifact:
+  id: ART-REPORT-PUBLICATION-PROJECTION-001
+  type: report_publication_projection
+  schema_version: 0.3.2
+  version: 1
+  produced_by: {skill: report-publication-projection, attempt: ATT-00021}
+  created_at: "2026-09-03T00:00:00Z"
+  supersedes: null
+  status: active
+report_projection_ref: ART-REPORT-PROJECTION-001@1
+chart_bundle_collection_ref: ART-CHART-COLLECTION-001@1
+fact_groups:
+  - id: FG-PRICING-001
+    section_id: pricing
+    dom_scope_id: pricing-notion
+    facts:
+      - fact_id: FACT-PRICING-001
+        origin_artifact_ref: ART-COMPETITOR-001@1
+        origin_field_pointer: /competitors/0/metrics/pricing/value
+        content_hash: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        fact_class: dataset
+        claim_refs: [CL-001]
+        evidence_refs: [EV-001]
+        source_refs: [SRC-001]
+    citation_source_ids: [SRC-001]
+citation_closure: {claim_ids: [CL-001], evidence_ids: [EV-001], source_ids: [SRC-001]}
+verification_status: PENDING
+scoring_status: NOT_PERFORMED

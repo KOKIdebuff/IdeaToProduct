@@ -1,0 +1,70 @@
+artifact:
+  id: ART-IDEA-CLEAR-001
+  type: idea_definition
+  schema_version: 0.3.2
+  version: 1
+  produced_by:
+    skill: idea-intake
+    attempt: ATT-IDEA-CLEAR-001
+  created_at: "2026-08-09T04:00:00Z"
+  supersedes: null
+  status: active
+idea:
+  original: Build a local tool that reads coding-agent progress files and shows execution status to developers.
+  normalized_summary: A local developer tool for auditable coding-agent progress visibility.
+problem:
+  statement: Developers cannot quickly see what a coding agent is doing across project files.
+  trigger: A long-running coding task continues outside the active editor view.
+  current_alternative: Manually inspect terminal output and project progress files.
+  pain_hypothesis: Fragmented status makes intervention and review slower.
+target_users:
+  primary: [developers using coding agents]
+  secondary: [engineering leads reviewing agent work]
+scenario:
+  primary_context: A developer monitors an active local repository task.
+  trigger: The developer needs current stage, evidence, and blockers.
+  desired_outcome: Understand progress without reconstructing it from raw logs.
+jtbd:
+  functional: Aggregate agent execution status from local project evidence.
+  emotional: Reduce uncertainty during long-running work.
+  social: Make agent progress reviewable by a team.
+value_proposition:
+  core_value: Fast, evidence-linked progress visibility.
+  why_better_hypothesis: Structured local evidence is easier to audit than chat-only status.
+solution:
+  direction_hypothesis: Read known progress artifacts and render a local status view.
+  alternatives_considered: [Use only terminal scrollback, Ask the agent for manual summaries]
+  core_mechanism: Parse local status artifacts without taking control of the coding-agent runtime.
+scope:
+  initial_boundary: Read-only local progress visualization.
+  non_goals: [Control or replace the coding-agent runtime]
+assumptions:
+  - id: ASM-CLEAR-001
+    type: problem
+    claim: Developers need a consolidated view during long agent tasks.
+    status: unvalidated
+    criticality: high
+unknowns:
+  - id: UNK-CLEAR-001
+    dimension: value
+    question: Which status signals most improve intervention decisions?
+    researchable: true
+research_seeds:
+  competitor_questions: ["Which developer tools expose agent progress today?"]
+  user_questions: ["Which status signals do developers check during long tasks?"]
+  market_questions: ["How quickly is coding-agent observability becoming a distinct category?"]
+  technology_questions: ["Which local progress formats can be read safely and deterministically?"]
+clarity:
+  problem: HIGH
+  user: HIGH
+  scenario: HIGH
+  value: HIGH
+  mechanism: HIGH
+  overall: CLEAR
+confidence:
+  overall: low
+  basis: Product framing is clear, but all market and user claims remain unvalidated.
+shaping:
+  mode: CLEAR
+  rounds_used: 0
+  completion_outcome: SUFFICIENT

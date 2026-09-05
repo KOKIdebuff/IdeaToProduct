@@ -1,0 +1,33 @@
+skill:
+  id: research-contract
+  version: 0.3.0
+  type: planner
+inputs:
+  required: [idea_definition, product_profile]
+  optional: []
+reads:
+  - artifacts/00-intake/idea-definition.yaml
+  - profiles/
+writes:
+  - artifacts/01-contract/research-contract.yaml
+output_contracts:
+  - artifact_type: research_contract
+    write: artifacts/01-contract/research-contract.yaml
+    schema_ref: schemas/research.schema.json#/$defs/research_contract
+    template_ref: null
+evidence:
+  required: false
+  provenance_required: false
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/01-contract/research-contract.yaml
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 0
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [research_contract]
+on_failure: []

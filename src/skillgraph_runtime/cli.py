@@ -40,7 +40,7 @@ def _parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init")
     init.add_argument("--idea", required=True)
     init.add_argument("--profile", required=True)
-    init.add_argument("--contract-version", default="0.2.0")
+    init.add_argument("--contract-version")
     init.add_argument("--legacy-input-refs")
     init.add_argument("--idempotency-key", required=True)
     status = sub.add_parser("status")

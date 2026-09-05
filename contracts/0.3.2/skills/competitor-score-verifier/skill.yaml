@@ -1,0 +1,30 @@
+skill:
+  id: competitor-score-verifier
+  version: 0.3.2
+  type: verifier
+inputs:
+  required: [report_projection, scoring_rubric, dimension_judgment]
+  optional: []
+reads:
+  - artifacts/02-research/competitors/report-projection.json
+  - artifacts/02-research/competitors/scoring/judgments/
+  - rubrics/
+writes:
+  - artifacts/02-research/competitors/scoring/verifications/
+output_contracts:
+  - artifact_type: score_verification
+    write: artifacts/02-research/competitors/scoring/verifications/
+    schema_ref: schemas/competitor.schema.json#/$defs/score_verification
+    template_ref: null
+evidence: {required: true, provenance_required: true}
+permissions:
+  external_access: none
+  workspace_write: [artifacts/02-research/competitors/scoring/verifications/]
+  secrets: forbidden
+budget: {timeout_minutes: 20, max_sources: 0}
+executor: {allowed_adapter_types: [fixture, manual, host_agent]}
+completion:
+  required_outputs: [score_verification]
+  independent_role_required: true
+  retry_exhaustion_action: OPEN_RESEARCH_GAP
+on_failure: [emit_research_gap]

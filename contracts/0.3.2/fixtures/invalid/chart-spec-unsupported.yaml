@@ -1,0 +1,7 @@
+chart_id: feature_matrix
+renderer_kind: pie
+data_contract: competitor_by_dimension_cells
+title: Unsupported chart
+description: Pie is not a registered native kind.
+width: 960
+height: 540

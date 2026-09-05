@@ -1,0 +1,23 @@
+executor_result:
+  schema_version: 0.3.1
+  run_id: run_20260808_001
+  node_id: competitor
+  attempt_id: ATT-00018
+  status: FAILED
+  output_artifact_refs: []
+  source_upserts: []
+  usage:
+    automated_duration_seconds: 20
+    source_count: 0
+    input_tokens: null
+    output_tokens: null
+    estimated_cost: null
+  error:
+    code: EXECUTOR_FAILED
+    message: Fixture executor failed intentionally.
+    recoverable: true
+    retry_target: competitor
+    consumes_node_attempt: true
+    consumes_global_research_cycle: false
+    next_action: RETRY_NODE
+    details: {}

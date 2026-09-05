@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Mapping
+from typing import Iterable, Mapping
 
 from .domain import AttemptStatus, NodeAddress, NodeState, NodeStatus, RunSnapshot, WorkflowStatus
 from .errors import RuntimeContractError
@@ -53,14 +53,34 @@ def _artifact_types_for_addresses(snapshot: RunSnapshot, bundle: CompiledBundle,
     return tuple(sorted(types))
 
 
-def invalidate_downstream(snapshot: RunSnapshot, bundle: CompiledBundle, changed_address: NodeAddress) -> InvalidationResult:
-    """Invalidate only transitive dependents of a changed, verified producer."""
+def invalidate_many(
+    snapshot: RunSnapshot,
+    bundle: CompiledBundle,
+    changed_addresses: Iterable[NodeAddress],
+    *,
+    include_roots: bool = False,
+) -> InvalidationResult:
+    """Invalidate one or more changed nodes and their shared dependents once.
 
-    if changed_address not in snapshot.node_states:
-        raise RuntimeContractError("Changed node does not exist in the Run", rule="invalidation_node")
+    A caller that is replacing a producer keeps ``include_roots`` false: the
+    producer remains current while only its dependents become stale.  A
+    bounded retry plan instead sets it true so the selected retry roots and
+    every affected successor share one Snapshot transition.
+    """
+
+    roots = tuple(dict.fromkeys(changed_addresses))
+    if not roots:
+        raise RuntimeContractError("Invalidation requires at least one changed node", rule="invalidation_node")
+    missing = tuple(address for address in roots if address not in snapshot.node_states)
+    if missing:
+        raise RuntimeContractError(
+            "Changed node does not exist in the Run",
+            rule="invalidation_node",
+            details={"addresses": missing},
+        )
     reverse = _reverse_dependencies(snapshot, bundle)
-    pending = list(reverse.get(changed_address, ()))
-    targets: set[NodeAddress] = set()
+    pending = [candidate for root in roots for candidate in reverse.get(root, ())]
+    targets: set[NodeAddress] = set(roots) if include_roots else set()
     while pending:
         address = pending.pop()
         if address in targets:
@@ -111,6 +131,12 @@ def invalidate_downstream(snapshot: RunSnapshot, bundle: CompiledBundle, changed
         current_gate_modification_ref=None if current_gate is None else snapshot.current_gate_modification_ref,
     )
     return InvalidationResult(next_snapshot, tuple(sorted(targets)), _artifact_types_for_addresses(snapshot, bundle, targets))
+
+
+def invalidate_downstream(snapshot: RunSnapshot, bundle: CompiledBundle, changed_address: NodeAddress) -> InvalidationResult:
+    """Invalidate only transitive dependents of a changed, verified producer."""
+
+    return invalidate_many(snapshot, bundle, (changed_address,))
 
 
 def resume_invalidated(snapshot: RunSnapshot) -> RunSnapshot:

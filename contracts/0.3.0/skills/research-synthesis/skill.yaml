@@ -1,0 +1,38 @@
+skill:
+  id: research-synthesis
+  version: 0.3.0
+  type: analysis
+inputs:
+  required: [research_verification, competitor_report, user_evidence, market_landscape]
+  optional: [technology_landscape, evidence_waiver_decision, accepted_risk_decisions]
+reads:
+  - artifacts/02-research/competitors/competitor-report.html
+  - artifacts/02-research/user-evidence.json
+  - artifacts/02-research/market-landscape.yaml
+  - artifacts/02-research/oss-tech-landscape.yaml
+  - artifacts/03-analysis/research-verification.yaml
+  - templates/synthesis.md
+writes:
+  - artifacts/03-analysis/research-synthesis.md
+output_contracts:
+  - artifact_type: research_synthesis
+    write: artifacts/03-analysis/research-synthesis.md
+    schema_ref: schemas/artifact.schema.json
+    template_ref: templates/synthesis.md
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/03-analysis/research-synthesis.md
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 0
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [research_synthesis]
+  verification_or_waiver_required: true
+on_failure: []

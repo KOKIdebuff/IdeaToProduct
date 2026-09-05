@@ -1,0 +1,26 @@
+rubric:
+  id: developer_tool_scoring
+  version: 1.0.0
+  profile_ref: developer_tool@0.3.1
+  integer_only: true
+  minimum: 1
+  maximum: 10
+  aggregation: weighted_arithmetic_mean
+  minimum_weight_coverage: 0.8
+  missing_evidence: renormalize_available_weights_partial
+  tie_break: evidence_coverage_then_shared_rank
+  change_rationale: Initial equal-weight baseline.
+  changelog:
+    - {version: 1.0.0, date: "2026-09-01", reason: Initial baseline.}
+score_bands:
+  - {minimum: 1, maximum: 2, meaning: Insufficient.}
+  - {minimum: 3, maximum: 4, meaning: Limited.}
+  - {minimum: 5, maximum: 6, meaning: Baseline.}
+  - {minimum: 7, maximum: 8, meaning: Strong.}
+  - {minimum: 9, maximum: 10, meaning: Leading.}
+dimensions:
+  - {id: workflow_fit, definition: Workflow fit., weight: 0.2, allowed_claim_categories: [competitor, product], minimum_evidence_count: 1}
+  - {id: developer_experience, definition: Developer experience., weight: 0.2, allowed_claim_categories: [competitor, user], minimum_evidence_count: 1}
+  - {id: extensibility_integration, definition: Extensibility and integration., weight: 0.2, allowed_claim_categories: [product, technology], minimum_evidence_count: 1}
+  - {id: ai_capability, definition: AI capability., weight: 0.2, allowed_claim_categories: [product, technology], minimum_evidence_count: 1}
+  - {id: ecosystem_maturity, definition: Ecosystem maturity., weight: 0.2, allowed_claim_categories: [market, technology], minimum_evidence_count: 1}

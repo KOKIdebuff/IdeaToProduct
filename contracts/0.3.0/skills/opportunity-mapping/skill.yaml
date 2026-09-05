@@ -1,0 +1,39 @@
+skill:
+  id: opportunity-mapping
+  version: 0.3.0
+  type: analysis
+inputs:
+  required: [research_synthesis]
+  optional: []
+reads:
+  - artifacts/03-analysis/research-synthesis.md
+writes:
+  - artifacts/03-analysis/opportunities.yaml
+  - artifacts/03-analysis/opportunity-methodology.yaml
+output_contracts:
+  - artifact_type: opportunity_map
+    write: artifacts/03-analysis/opportunities.yaml
+    schema_ref: schemas/research.schema.json#/$defs/opportunity_map
+    template_ref: null
+  - artifact_type: opportunity_methodology
+    write: artifacts/03-analysis/opportunity-methodology.yaml
+    schema_ref: schemas/research.schema.json#/$defs/opportunity_methodology
+    template_ref: null
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/03-analysis/opportunities.yaml
+    - artifacts/03-analysis/opportunity-methodology.yaml
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 0
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [opportunity_map, opportunity_methodology]
+  max_opportunities: 4
+on_failure: []

@@ -1,0 +1,34 @@
+skill:
+  id: mvp-scope
+  version: 0.3.0
+  type: planner
+inputs:
+  required: [product_definition, feasibility_review]
+  optional: [product_direction_decision]
+reads:
+  - artifacts/05-product/product-definition.md
+  - artifacts/06-feasibility/feasibility.md
+writes:
+  - artifacts/05-product/mvp-scope.yaml
+output_contracts:
+  - artifact_type: mvp_scope
+    write: artifacts/05-product/mvp-scope.yaml
+    schema_ref: schemas/research.schema.json#/$defs/mvp_scope
+    template_ref: null
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/05-product/mvp-scope.yaml
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 0
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [mvp_scope]
+  non_goals_min: 1
+on_failure: []

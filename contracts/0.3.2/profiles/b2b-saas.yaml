@@ -1,0 +1,20 @@
+profile:
+  id: b2b_saas
+  version: 0.3.2
+research_nodes:
+  competitor: {mode: required, priority: high}
+  users: {mode: required, priority: high}
+  market: {mode: required, priority: medium}
+  technology: {mode: required, priority: high}
+research_defaults:
+  competitor_count: 5
+  primary_sources: 8
+  user_evidence_items: 15
+  technology_items: 5
+scoring_rubric_ref: rubrics/b2b-saas-scoring.yaml
+competitor_visualizations:
+  required: [feature_matrix, positioning_map, pricing_comparison, integration_security_coverage]
+extra_questions:
+  - Which procurement, security, or integration constraint blocks adoption?
+  - How do buyer and end-user needs differ?
+extensions: []

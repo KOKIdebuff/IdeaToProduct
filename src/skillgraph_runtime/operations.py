@@ -16,6 +16,7 @@ from .kernel import RuntimeKernel
 from .storage import RunStorage
 from .idea_shaping import AdaptiveIdeaShapingService
 from .competitor_research import CompetitorResearchService
+from .research_gap import ResearchGapPlanner
 
 
 _MUTATING = frozenset(
@@ -56,6 +57,7 @@ class RuntimeOperations:
         adapters: AdapterRegistry | None = None,
         idea_shaping: AdaptiveIdeaShapingService | None = None,
         competitor_research: CompetitorResearchService | None = None,
+        research_gap_planner: ResearchGapPlanner | None = None,
     ) -> None:
         if kernel.storage_root is None:
             raise RuntimeContractError("RuntimeOperations requires an explicit storage_root", rule="storage_root_required")
@@ -66,8 +68,11 @@ class RuntimeOperations:
             raise RuntimeContractError("P0-03 service must use the same RuntimeKernel", rule="idea_shaping_kernel")
         if competitor_research is not None and competitor_research.kernel is not kernel:
             raise RuntimeContractError("P0-04 service must use the same RuntimeKernel", rule="competitor_research_kernel")
+        if research_gap_planner is not None and research_gap_planner.kernel is not kernel:
+            raise RuntimeContractError("P0-05 service must use the same RuntimeKernel", rule="research_gap_kernel")
         self.idea_shaping = idea_shaping
         self.competitor_research = competitor_research
+        self.research_gap_planner = research_gap_planner
 
     def execute_p0_03_attempt(self, run_id: str, attempt_id: str) -> Mapping[str, Any]:
         """Advance an active `idea` or `contract` Attempt through P0-03.
@@ -93,6 +98,18 @@ class RuntimeOperations:
         if self.competitor_research is None:
             raise RuntimeContractError("P0-04 Competitor Research service is not configured", rule="competitor_research_unavailable")
         return self.competitor_research.advance(run_id, attempt_id)
+
+    def execute_p0_05_attempt(self, run_id: str, attempt_id: str) -> Mapping[str, Any]:
+        """Advance the configured bounded Research Gap Planner.
+
+        This is an embedding-only hook, matching P0-03/P0-04.  It does not
+        widen the stable operation/CLI surface or grant Provider storage
+        authority.
+        """
+
+        if self.research_gap_planner is None:
+            raise RuntimeContractError("P0-05 Research Gap Planner is not configured", rule="research_gap_unavailable")
+        return self.research_gap_planner.advance(run_id, attempt_id)
 
     def execute_adapter_attempt(self, run_id: str, attempt_id: str, adapter_type: str) -> Mapping[str, Any]:
         """Run a configured adapter through the existing validation boundary.

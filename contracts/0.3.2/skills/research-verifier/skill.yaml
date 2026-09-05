@@ -1,0 +1,38 @@
+skill:
+  id: research-verifier
+  version: 0.3.2
+  type: verifier
+inputs:
+  required: [research_contract, competitor_verification, user_evidence, market_landscape]
+  optional: [technology_landscape, source_index, evidence_waiver_decision]
+reads:
+  - artifacts/01-contract/research-contract.yaml
+  - artifacts/02-research/competitors/competitor-verification.yaml
+  - artifacts/02-research/user-evidence.json
+  - artifacts/02-research/market-landscape.yaml
+  - artifacts/02-research/oss-tech-landscape.yaml
+  - artifacts/02-research/source-index.json
+writes:
+  - artifacts/03-analysis/research-verification.yaml
+output_contracts:
+  - artifact_type: research_verification
+    write: artifacts/03-analysis/research-verification.yaml
+    schema_ref: schemas/verification.schema.json#/$defs/research_verification
+    template_ref: null
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/03-analysis/research-verification.yaml
+  secrets: forbidden
+budget:
+  timeout_minutes: 20
+  max_sources: 0
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [research_verification]
+  enabled_sections_classified: true
+on_failure: []

@@ -1,0 +1,527 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Competitor Artifact Contracts",
+  "$defs": {
+    "category": {"enum": ["direct", "indirect", "substitute", "adjacent", "platform_risk"]},
+    "competitor_id": {"type": "string", "pattern": "^cmp_[a-z0-9][a-z0-9_-]*$"},
+    "artifact_type": {
+      "type": "object",
+      "properties": {"type": {"type": "string"}}
+    },
+    "competitor_candidates": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "competitors"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "competitor_candidates"}}},
+            "competitors": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "name", "category", "homepage", "repository", "relevance_reason", "source_ids"],
+                "properties": {
+                  "id": {"$ref": "#/$defs/competitor_id"},
+                  "name": {"type": "string", "minLength": 1},
+                  "category": {"$ref": "#/$defs/category"},
+                  "homepage": {"type": ["string", "null"], "format": "uri"},
+                  "repository": {"type": ["string", "null"], "format": "uri"},
+                  "relevance_reason": {"type": "string", "minLength": 1},
+                  "source_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/source_id"}}
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "competitor_ranking": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "selection_methodology", "ranking", "excluded_candidates"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "competitor_ranking"}}},
+            "selection_methodology": {"type": "string", "minLength": 1},
+            "ranking": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["competitor_id", "rank", "score", "rationale"],
+                "properties": {
+                  "competitor_id": {"$ref": "#/$defs/competitor_id"},
+                  "rank": {"type": "integer", "minimum": 1},
+                  "score": {"type": ["number", "null"]},
+                  "rationale": {"type": "string", "minLength": 1}
+                },
+                "additionalProperties": false
+              }
+            },
+            "excluded_candidates": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["competitor_id", "reason"],
+                "properties": {
+                  "competitor_id": {"$ref": "#/$defs/competitor_id"},
+                  "reason": {"type": "string", "minLength": 1}
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "competitor_deep_dive": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "competitor", "positioning", "target_users", "product", "business", "traction", "user_feedback", "strengths", "weaknesses", "strategic_threat", "source_ids"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "competitor_deep_dive"}}},
+            "competitor": {
+              "type": "object",
+              "required": ["id", "name", "category"],
+              "properties": {
+                "id": {"$ref": "#/$defs/competitor_id"},
+                "name": {"type": "string", "minLength": 1},
+                "category": {"$ref": "#/$defs/category"}
+              },
+              "additionalProperties": false
+            },
+            "positioning": {"type": "object", "required": ["description"], "properties": {"description": {"type": "string"}}, "additionalProperties": false},
+            "target_users": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "product": {
+              "type": "object",
+              "required": ["core_workflow", "features", "integrations", "ux_model"],
+              "properties": {
+                "core_workflow": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "features": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "integrations": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "ux_model": {"type": ["string", "null"]}
+              },
+              "additionalProperties": false
+            },
+            "business": {
+              "type": "object",
+              "required": ["pricing", "license", "monetization"],
+              "properties": {
+                "pricing": {"type": ["string", "null"]},
+                "license": {"type": ["string", "null"]},
+                "monetization": {"type": ["string", "null"]}
+              },
+              "additionalProperties": false
+            },
+            "traction": {
+              "type": "object",
+              "required": ["github_stars", "star_growth_30d", "contributors", "releases_90d"],
+              "properties": {
+                "github_stars": {
+                  "type": "object",
+                  "required": ["value", "observed_at", "source_id"],
+                  "properties": {
+                    "value": {"type": ["integer", "null"], "minimum": 0},
+                    "observed_at": {"type": "string", "format": "date-time"},
+                    "source_id": {"oneOf": [{"$ref": "common.schema.json#/$defs/source_id"}, {"type": "null"}]}
+                  },
+                  "additionalProperties": false
+                },
+                "star_growth_30d": {
+                  "type": "object",
+                  "required": ["value", "method", "observed_at", "source_ids"],
+                  "properties": {
+                    "value": {"type": ["number", "null"]},
+                    "method": {"type": ["string", "null"]},
+                    "observed_at": {"type": "string", "format": "date-time"},
+                    "source_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/source_id"}}
+                  },
+                  "additionalProperties": false
+                },
+                "contributors": {"type": ["integer", "null"], "minimum": 0},
+                "releases_90d": {"type": ["integer", "null"], "minimum": 0}
+              },
+              "additionalProperties": false
+            },
+            "user_feedback": {
+              "type": "object",
+              "required": ["positive", "negative"],
+              "properties": {
+                "positive": {"type": "array", "items": {"type": "string"}},
+                "negative": {"type": "array", "items": {"type": "string"}}
+              },
+              "additionalProperties": false
+            },
+            "strengths": {"type": "array", "items": {"type": "string"}},
+            "weaknesses": {"type": "array", "items": {"type": "string"}},
+            "strategic_threat": {
+              "type": "object",
+              "required": ["level", "reasoning"],
+              "properties": {
+                "level": {"enum": ["high", "medium", "low", "unknown"]},
+                "reasoning": {"type": "string"}
+              },
+              "additionalProperties": false
+            },
+            "source_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/source_id"}}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "metric": {
+      "type": "object",
+      "required": ["value"],
+      "properties": {
+        "value": {"type": ["number", "integer", "string", "null"]},
+        "observed_at": {"type": ["string", "null"], "format": "date-time"},
+        "source": {"type": "string"},
+        "source_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/source_id"}},
+        "sample_size": {"type": "integer", "minimum": 0},
+        "method": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "temporal_metric": {
+      "allOf": [
+        {"$ref": "#/$defs/metric"},
+        {
+          "type": "object",
+          "required": ["observed_at"],
+          "properties": {"observed_at": {"type": "string", "format": "date-time"}}
+        }
+      ]
+    },
+    "competitor_dataset": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "schema_version", "generated_at", "competitors"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "competitor_dataset"}}},
+            "schema_version": {"$ref": "common.schema.json#/$defs/schema_version"},
+            "generated_at": {"type": "string", "format": "date-time"},
+            "competitors": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["id", "name", "category", "metrics"],
+                "properties": {
+                  "id": {"$ref": "#/$defs/competitor_id"},
+                  "name": {"type": "string", "minLength": 1},
+                  "category": {"$ref": "#/$defs/category"},
+                  "metrics": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "patternProperties": {
+                      ".*(?:growth|momentum|trend|change|delta|30d|90d).*": {"$ref": "#/$defs/temporal_metric"}
+                    },
+                    "additionalProperties": {"$ref": "#/$defs/metric"}
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "competitor_analysis": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "analysis_type", "observations", "evidence_ids", "limitations"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "competitor_analysis"}}},
+            "analysis_type": {"enum": ["feature", "traction", "review", "pricing"]},
+            "observations": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "evidence_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/evidence_id"}},
+            "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_binding": {
+      "type": "object",
+      "required": ["fact_id", "origin_artifact_ref", "origin_field_pointer", "content_hash", "fact_class", "claim_refs", "evidence_refs", "source_refs"],
+      "properties": {
+        "fact_id": {"type": "string", "pattern": "^FACT-[A-Za-z0-9_-]+$"},
+        "origin_artifact_ref": {"$ref": "common.schema.json#/$defs/artifact_ref"},
+        "origin_field_pointer": {"type": "string", "pattern": "^/(?:[^~/]|~[01])+(?:/(?:[^~/]|~[01])+)*$"},
+        "content_hash": {"$ref": "common.schema.json#/$defs/sha256"},
+        "fact_class": {"enum": ["candidate", "ranking", "deep_dive", "dataset", "analysis", "chart", "score"]},
+        "claim_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/claim_id"}},
+        "evidence_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/evidence_id"}},
+        "source_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/source_id"}}
+      },
+      "additionalProperties": false
+    },
+    "report_fact_group": {
+      "type": "object",
+      "required": ["id", "section_id", "dom_scope_id", "facts", "citation_source_ids"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^FG-[A-Za-z0-9_-]+$"},
+        "section_id": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "dom_scope_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "facts": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/fact_binding"}},
+        "citation_source_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/source_id"}}
+      },
+      "additionalProperties": false
+    },
+    "report_projection": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "input_state_version", "input_artifact_refs", "fact_groups", "citation_closure", "verification_status", "scoring_status"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "report_projection"}}},
+            "input_state_version": {"type": "integer", "minimum": 0},
+            "input_artifact_refs": {"$ref": "common.schema.json#/$defs/artifact_refs"},
+            "fact_groups": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/report_fact_group"}},
+            "citation_closure": {
+              "type": "object",
+              "required": ["claim_ids", "evidence_ids", "source_ids"],
+              "properties": {
+                "claim_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/claim_id"}},
+                "evidence_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/evidence_id"}},
+                "source_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/source_id"}}
+              },
+              "additionalProperties": false
+            },
+            "verification_status": {"const": "PENDING"},
+            "scoring_status": {"enum": ["NOT_PERFORMED", "AVAILABLE"]}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "report_publication_projection": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "report_projection_ref", "chart_bundle_collection_ref", "fact_groups", "citation_closure", "verification_status", "scoring_status"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "report_publication_projection"}}},
+            "report_projection_ref": {"$ref": "common.schema.json#/$defs/artifact_ref"},
+            "chart_bundle_collection_ref": {"$ref": "common.schema.json#/$defs/artifact_ref"},
+            "fact_groups": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/report_fact_group"}},
+            "citation_closure": {
+              "type": "object",
+              "required": ["claim_ids", "evidence_ids", "source_ids"],
+              "properties": {
+                "claim_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/claim_id"}},
+                "evidence_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/evidence_id"}},
+                "source_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/source_id"}}
+              },
+              "additionalProperties": false
+            },
+            "verification_status": {"const": "PENDING"},
+            "scoring_status": {"enum": ["NOT_PERFORMED", "AVAILABLE"]}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "competitor_report": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "report_publication_projection_ref", "chart_bundle_collection_ref", "report_root_ref", "inventory_ref", "base_report_ref"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "competitor_report"}}},
+            "report_publication_projection_ref": {"$ref": "common.schema.json#/$defs/artifact_ref"},
+            "chart_bundle_collection_ref": {"$ref": "common.schema.json#/$defs/artifact_ref"},
+            "report_root_ref": {"$ref": "common.schema.json#/$defs/relative_path"},
+            "inventory_ref": {"$ref": "common.schema.json#/$defs/relative_path"},
+            "base_report_ref": {"oneOf": [{"$ref": "common.schema.json#/$defs/artifact_ref"}, {"type": "null"}]}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "score_band": {
+      "type": "object",
+      "required": ["minimum", "maximum", "meaning"],
+      "properties": {
+        "minimum": {"type": "integer", "minimum": 1, "maximum": 10},
+        "maximum": {"type": "integer", "minimum": 1, "maximum": 10},
+        "meaning": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "rubric_dimension": {
+      "type": "object",
+      "required": ["id", "definition", "weight", "allowed_claim_categories", "minimum_evidence_count"],
+      "properties": {
+        "id": {"$ref": "common.schema.json#/$defs/machine_id"},
+        "definition": {"type": "string", "minLength": 1},
+        "weight": {"const": 0.2},
+        "allowed_claim_categories": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["user", "competitor", "market", "technology", "product"]}},
+        "minimum_evidence_count": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "scoring_rubric": {
+      "type": "object",
+      "required": ["rubric", "score_bands", "dimensions"],
+      "properties": {
+        "rubric": {
+          "type": "object",
+          "required": ["id", "version", "profile_ref", "integer_only", "minimum", "maximum", "aggregation", "minimum_weight_coverage", "missing_evidence", "tie_break", "change_rationale", "changelog"],
+          "properties": {
+            "id": {"$ref": "common.schema.json#/$defs/machine_id"},
+            "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+            "profile_ref": {"type": "string", "pattern": "^(?:developer_tool|ai_agent_product|consumer_app|b2b_saas)@0\\.3\\.2$"},
+            "integer_only": {"const": true},
+            "minimum": {"const": 1},
+            "maximum": {"const": 10},
+            "aggregation": {"const": "weighted_arithmetic_mean"},
+            "minimum_weight_coverage": {"const": 0.8},
+            "missing_evidence": {"const": "renormalize_available_weights_partial"},
+            "tie_break": {"const": "evidence_coverage_then_shared_rank"},
+            "change_rationale": {"type": "string", "minLength": 1},
+            "changelog": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["version", "date", "reason"],
+                "properties": {
+                  "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+                  "date": {"type": "string", "format": "date"},
+                  "reason": {"type": "string", "minLength": 1}
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "score_bands": {"type": "array", "minItems": 5, "maxItems": 5, "items": {"$ref": "#/$defs/score_band"}},
+        "dimensions": {"type": "array", "minItems": 5, "maxItems": 5, "items": {"$ref": "#/$defs/rubric_dimension"}}
+      },
+      "additionalProperties": false
+    },
+    "dimension_judgment": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "competitor_id", "rubric_ref", "rubric_version", "dimension_id", "judgment_status", "score", "claim_refs", "evidence_refs", "rationale"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "dimension_judgment"}}},
+            "competitor_id": {"$ref": "#/$defs/competitor_id"},
+            "rubric_ref": {"type": "string", "pattern": "^rubrics/[a-z0-9-]+-scoring\\.yaml$"},
+            "rubric_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+            "dimension_id": {"$ref": "common.schema.json#/$defs/machine_id"},
+            "judgment_status": {"enum": ["SCORED", "UNRESOLVED"]},
+            "score": {"type": ["integer", "null"], "minimum": 1, "maximum": 10},
+            "claim_refs": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/claim_id"}},
+            "evidence_refs": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/evidence_id"}},
+            "rationale": {"type": "string", "minLength": 1}
+          },
+          "allOf": [
+            {"if": {"properties": {"judgment_status": {"const": "SCORED"}}}, "then": {"properties": {"score": {"type": "integer"}}, "required": ["claim_refs", "evidence_refs"]}},
+            {"if": {"properties": {"judgment_status": {"const": "UNRESOLVED"}}}, "then": {"properties": {"score": {"type": "null"}}}}
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "score_verification": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "judgment_ref", "result", "issues", "retry_exhausted", "next_action"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "score_verification"}}},
+            "judgment_ref": {"$ref": "common.schema.json#/$defs/artifact_ref"},
+            "result": {"enum": ["ACCEPT", "REJECT", "RETRY"]},
+            "issues": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "retry_exhausted": {"type": "boolean"},
+            "next_action": {"enum": ["AGGREGATE", "RETRY_NODE", "OPEN_RESEARCH_GAP"]}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "transparent_score": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "competitor_id", "profile_ref", "rubric_ref", "rubric_version", "configured_weights", "effective_weights", "coverage", "status", "missing_dimension_ids", "dimension_judgment_refs", "score_verification_refs", "final_score", "rank", "tie_status", "candidate_ranking_ref"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "transparent_score"}}},
+            "competitor_id": {"$ref": "#/$defs/competitor_id"},
+            "profile_ref": {"type": "string", "pattern": "^(?:developer_tool|ai_agent_product|consumer_app|b2b_saas)@0\\.3\\.2$"},
+            "rubric_ref": {"type": "string", "pattern": "^rubrics/[a-z0-9-]+-scoring\\.yaml$"},
+            "rubric_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+            "configured_weights": {"type": "object", "minProperties": 5, "maxProperties": 5, "additionalProperties": {"const": 0.2}},
+            "effective_weights": {"type": "object", "minProperties": 4, "maxProperties": 5, "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}},
+            "coverage": {"type": "number", "minimum": 0, "maximum": 1},
+            "status": {"enum": ["COMPLETE", "PARTIAL", "NOT_PERFORMED"]},
+            "missing_dimension_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/machine_id"}},
+            "dimension_judgment_refs": {"$ref": "common.schema.json#/$defs/artifact_refs"},
+            "score_verification_refs": {"$ref": "common.schema.json#/$defs/artifact_refs"},
+            "final_score": {"type": ["number", "null"], "minimum": 1, "maximum": 10},
+            "rank": {"type": ["integer", "null"], "minimum": 1},
+            "tie_status": {"enum": ["UNIQUE", "TIED", "NOT_RANKED"]},
+            "candidate_ranking_ref": {"$ref": "common.schema.json#/$defs/artifact_ref"}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "scoring_methodology": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "score", "normalization", "weights", "missing_values", "minimum_required_metrics"],
+          "properties": {
+            "artifact": {"type": "object", "properties": {"type": {"const": "scoring_methodology"}}},
+            "score": {
+              "type": "object",
+              "required": ["id", "version"],
+              "properties": {
+                "id": {"$ref": "common.schema.json#/$defs/machine_id"},
+                "version": {"type": "string", "pattern": "^0\\.1(?:\\.0)?$"}
+              },
+              "additionalProperties": false
+            },
+            "normalization": {
+              "type": "object",
+              "required": ["method", "range"],
+              "properties": {
+                "method": {"enum": ["min_max"]},
+                "range": {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}], "items": false}
+              },
+              "additionalProperties": false
+            },
+            "weights": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}},
+            "missing_values": {"type": "object", "required": ["strategy"], "properties": {"strategy": {"const": "renormalize_available_weights"}}, "additionalProperties": false},
+            "minimum_required_metrics": {"type": "integer", "minimum": 2}
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "$ref": "#/$defs/competitor_dataset"
+}

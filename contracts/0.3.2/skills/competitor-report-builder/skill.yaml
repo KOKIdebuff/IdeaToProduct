@@ -1,0 +1,38 @@
+skill:
+  id: competitor-report-builder
+  version: 0.3.2
+  type: generator
+inputs:
+  required: [report_publication_projection, chart_bundle_collection, product_profile]
+  optional: [source_index, transparent_score]
+reads:
+  - artifacts/02-research/competitors/report-publication-projection.json
+  - artifacts/02-research/competitors/visualizations/
+  - artifacts/02-research/source-index.json
+  - templates/competitor-report.html
+writes:
+  - artifacts/02-research/competitors/report-publication.json
+output_contracts:
+  - artifact_type: competitor_report
+    write: artifacts/02-research/competitors/report-publication.json
+    schema_ref: schemas/competitor.schema.json#/$defs/competitor_report
+    template_ref: templates/competitor-report.html
+evidence:
+  required: true
+  provenance_required: true
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/02-research/competitors/report-publication.json
+    - artifacts/02-research/competitors/report-bundles/
+  secrets: forbidden
+budget: {timeout_minutes: 5, max_sources: 0}
+executor:
+  allowed_adapter_types: [fixture, manual, host_agent]
+completion:
+  required_outputs: [competitor_report]
+  citation_closure_complete: true
+  initial_verification_status: PENDING
+  missing_score_status: NOT_PERFORMED
+  immutable_bundle_required: true
+on_failure: [emit_research_gap]
