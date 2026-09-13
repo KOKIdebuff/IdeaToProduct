@@ -17,6 +17,8 @@ from .storage import RunStorage
 from .idea_shaping import AdaptiveIdeaShapingService
 from .competitor_research import CompetitorResearchService
 from .research_gap import ResearchGapPlanner
+from .runtime_integration import StagedP004RuntimeIntegration
+from .chart_rendering import ChartRenderingProposal
 
 
 _MUTATING = frozenset(
@@ -58,6 +60,7 @@ class RuntimeOperations:
         idea_shaping: AdaptiveIdeaShapingService | None = None,
         competitor_research: CompetitorResearchService | None = None,
         research_gap_planner: ResearchGapPlanner | None = None,
+        p0_04_integration: StagedP004RuntimeIntegration | None = None,
     ) -> None:
         if kernel.storage_root is None:
             raise RuntimeContractError("RuntimeOperations requires an explicit storage_root", rule="storage_root_required")
@@ -73,6 +76,9 @@ class RuntimeOperations:
         self.idea_shaping = idea_shaping
         self.competitor_research = competitor_research
         self.research_gap_planner = research_gap_planner
+        if p0_04_integration is not None and p0_04_integration.kernel is not kernel:
+            raise RuntimeContractError("P0-04 Runtime integration must use the same RuntimeKernel", rule="p0_04_integration_kernel")
+        self.p0_04_integration = p0_04_integration or StagedP004RuntimeIntegration(kernel)
 
     def execute_p0_03_attempt(self, run_id: str, attempt_id: str) -> Mapping[str, Any]:
         """Advance an active `idea` or `contract` Attempt through P0-03.
@@ -110,6 +116,69 @@ class RuntimeOperations:
         if self.research_gap_planner is None:
             raise RuntimeContractError("P0-05 Research Gap Planner is not configured", rule="research_gap_unavailable")
         return self.research_gap_planner.advance(run_id, attempt_id)
+
+    def commit_p0_04_chart_rendering(
+        self,
+        run_id: str,
+        attempt_id: str,
+        proposal: ChartRenderingProposal,
+        *,
+        idempotency_key: str,
+    ) -> Mapping[str, Any]:
+        """Commit a staged Chart proposal through the Runtime single writer."""
+
+        return self.p0_04_integration.commit_chart_rendering(
+            run_id, attempt_id, proposal, idempotency_key=idempotency_key
+        )
+
+    def commit_p0_04_publication_projection(
+        self,
+        run_id: str,
+        attempt_id: str,
+        *,
+        idempotency_key: str,
+    ) -> Mapping[str, Any]:
+        """Materialize and commit the staged Publication Projection."""
+
+        return self.p0_04_integration.materialize_publication_projection(
+            run_id, attempt_id, idempotency_key=idempotency_key
+        )
+
+    def commit_p0_04_report(
+        self,
+        run_id: str,
+        attempt_id: str,
+        *,
+        idempotency_key: str,
+        expected_base_report_ref: str | None,
+    ) -> Mapping[str, Any]:
+        """Generate in isolation, revalidate, and commit an offline Report."""
+
+        return self.p0_04_integration.publish_report(
+            run_id,
+            attempt_id,
+            idempotency_key=idempotency_key,
+            expected_base_report_ref=expected_base_report_ref,
+        )
+
+    def commit_p0_04_transparent_score(
+        self,
+        run_id: str,
+        scoring_attempt_id: str,
+        *,
+        idempotency_key: str,
+        competitor_id: str,
+        judgment_verification_refs: tuple[tuple[str, str], ...],
+    ) -> Mapping[str, Any]:
+        """Commit one Runtime-owned post-verifier deterministic aggregate."""
+
+        return self.p0_04_integration.commit_transparent_score(
+            run_id,
+            scoring_attempt_id,
+            idempotency_key=idempotency_key,
+            competitor_id=competitor_id,
+            judgment_verification_refs=judgment_verification_refs,
+        )
 
     def execute_adapter_attempt(self, run_id: str, attempt_id: str, adapter_type: str) -> Mapping[str, Any]:
         """Run a configured adapter through the existing validation boundary.

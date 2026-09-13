@@ -476,6 +476,7 @@ class RuntimeKernel:
         manifest_remove_types: tuple[str, ...] = (),
         events: Sequence[Mapping[str, Any]] = (),
         decisions: Sequence[Mapping[str, Any]] = (),
+        reuse_uncommitted_events: bool = False,
     ) -> None:
         """Commit a validated Snapshot and its immutable audit side records.
 
@@ -487,15 +488,25 @@ class RuntimeKernel:
         bundle = self.compiled_bundle_for(snapshot)
         self._validate_wire_state(snapshot, bundle)
         storage = self._storage_for(snapshot.run_id)
-        last_offset = 0
-        for raw in events:
+        manifest = storage._manifest() or {}
+        committed_offset = int(manifest.get("last_event_offset", 0))
+        existing_tail = storage.event_records()[committed_offset:] if reuse_uncommitted_events else ()
+        if len(existing_tail) > len(events):
+            raise RuntimeContractError("Uncommitted Event tail exceeds the retried mutation", code="STATE_VERSION_CONFLICT", rule="event_recovery")
+        for raw, existing in zip(events, existing_tail, strict=False):
+            expected = dict(deep_thaw(raw))
+            expected.setdefault("state_version", snapshot.state_version)
+            observed = {key: value for key, value in existing.items() if key not in {"offset", "ts"}}
+            if observed != expected:
+                raise RuntimeContractError("Uncommitted Event tail does not match the retried mutation", code="STATE_VERSION_CONFLICT", rule="event_recovery")
+        last_offset = int(existing_tail[-1]["offset"]) if existing_tail else 0
+        for raw in events[len(existing_tail):]:
             event = dict(deep_thaw(raw))
             event.setdefault("ts", self.clock.now())
             event.setdefault("state_version", snapshot.state_version)
             last_offset = storage.append_event(event)
         if last_offset == 0:
-            manifest = storage._manifest()  # private, same storage boundary
-            last_offset = int(manifest.get("last_event_offset", 0) if manifest else 0)
+            last_offset = committed_offset
         for decision in decisions:
             storage.append_decision(decision, event_offset=last_offset)
         storage.commit_snapshot(
@@ -673,6 +684,10 @@ class RuntimeKernel:
         snapshot = storage.load_snapshot()
         self._validate_wire_state(snapshot, self.compiled_bundle_for(snapshot))
         self._validate_report_projection_resume(snapshot)
+        if snapshot.contract_version == "0.3.2":
+            from .runtime_integration import validate_staged_runtime_resume
+
+            validate_staged_runtime_resume(self, snapshot)
         return snapshot
 
     def recover_run(self, run_id: str) -> RecoveryReport:
@@ -681,6 +696,10 @@ class RuntimeKernel:
         snapshot = storage.load_snapshot()
         self._validate_wire_state(snapshot, self.compiled_bundle_for(snapshot))
         self._validate_report_projection_resume(snapshot)
+        if snapshot.contract_version == "0.3.2":
+            from .runtime_integration import validate_staged_runtime_resume
+
+            validate_staged_runtime_resume(self, snapshot)
         return report
 
     def schedule_persisted(
@@ -842,6 +861,8 @@ class RuntimeKernel:
         evidence_records: Sequence[Mapping[str, Any]] = (),
         claim_records: Sequence[Mapping[str, Any]] = (),
         fact_binding_records: Sequence[Mapping[str, Any]] = (),
+        asset_payloads: Mapping[str, bytes] | None = None,
+        mutation_identity: Mapping[str, str] | None = None,
     ) -> RunSnapshot:
         """Atomically finish and verify a Kernel-owned business Skill Attempt.
 
@@ -866,6 +887,15 @@ class RuntimeKernel:
             validated.append((logical_path, document, artifact_type))
         if len({artifact_type for _, _, artifact_type in validated}) != len(validated):
             raise RuntimeContractError("Business Attempt cannot write duplicate Artifact types", rule="business_artifact")
+        if asset_payloads is not None and len(validated) != 1:
+            raise RuntimeContractError("Contained assets require exactly one owning Artifact", rule="asset_inventory")
+        if mutation_identity is not None:
+            required_identity = {"key_hash", "request_hash", "operation", "artifact_ref"}
+            if set(mutation_identity) != required_identity or any(not isinstance(value, str) for value in mutation_identity.values()):
+                raise RuntimeContractError("Mutation identity is malformed", rule="mutation_receipt")
+            output_ref = f"{validated[0][1]['artifact']['id']}@{validated[0][1]['artifact']['version']}"
+            if len(validated) != 1 or mutation_identity["artifact_ref"] != output_ref:
+                raise RuntimeContractError("Mutation identity does not bind the output Artifact", rule="mutation_receipt")
 
         # Validate the complete Source -> Evidence -> Claim closure before any
         # immutable Artifact or sidecar file is written.  A rejected closure
@@ -883,7 +913,22 @@ class RuntimeKernel:
             )
 
         storage = self._storage_for(run_id)
-        stored = [storage.write_artifact(snapshot, attempt_id, logical_path, document) for logical_path, document, _ in validated]
+        receipt = storage.bind_mutation_receipt(**mutation_identity) if mutation_identity is not None else None
+        stored = [
+            storage.write_artifact(
+                snapshot,
+                attempt_id,
+                logical_path,
+                document,
+                allow_existing_identical=mutation_identity is not None,
+            )
+            for logical_path, document, _ in validated
+        ]
+        inventory = (
+            storage.write_asset_inventory(artifact_ref=stored[0].artifact_ref, assets=asset_payloads)
+            if asset_payloads is not None
+            else None
+        )
         result = {
             "executor_result": {
                 "schema_version": snapshot.contract_version,
@@ -891,7 +936,9 @@ class RuntimeKernel:
                 "node_id": attempt.address.node_id,
                 "attempt_id": attempt_id,
                 "status": "COMPLETED",
-                "output_artifact_refs": [item.artifact_ref for item in stored],
+                "output_artifact_refs": list(
+                    dict.fromkeys((*state.artifact_refs, *(item.artifact_ref for item in stored)))
+                ),
                 "source_upserts": [],
                 "usage": {
                     "automated_duration_seconds": 0,
@@ -932,10 +979,22 @@ class RuntimeKernel:
                 claims=provenance[1],
                 fact_bindings=provenance[2],
             )
-        manifest_updates = {
-            item.artifact_type: {"artifact_ref": item.artifact_ref, "content_hash": item.content_hash}
-            for item in stored
-        }
+        manifest_updates: dict[str, dict[str, str]] = {}
+        for item in stored:
+            entry = {"artifact_ref": item.artifact_ref, "content_hash": item.content_hash}
+            if mutation_identity is not None and receipt is not None:
+                entry.update(
+                    {
+                        "operation": mutation_identity["operation"],
+                        "idempotency_key_hash": mutation_identity["key_hash"],
+                        "request_hash": mutation_identity["request_hash"],
+                        "mutation_receipt_ref": receipt[0],
+                        "mutation_receipt_hash": receipt[1],
+                    }
+                )
+            if inventory is not None:
+                entry.update({"asset_inventory_ref": inventory.inventory_ref, "asset_inventory_hash": inventory.content_hash})
+            manifest_updates[item.artifact_type] = entry
         audit_events: list[Mapping[str, Any]] = [
             {"event": "ARTIFACT_WRITTEN", "artifact": item.artifact_ref, "attempt": attempt_id}
             for item in stored
@@ -945,14 +1004,91 @@ class RuntimeKernel:
             audit_events.append({"event": "SOURCE_INDEX_UPDATED", "node": attempt.address.node_id, "attempt": attempt_id})
         if provenance is not None:
             audit_events.append({"event": "RESEARCH_PROVENANCE_UPDATED", "node": attempt.address.node_id, "attempt": attempt_id})
+        if inventory is not None:
+            audit_events.append({"event": "ARTIFACT_ASSETS_WRITTEN", "artifact": stored[0].artifact_ref, "attempt": attempt_id})
         audit_events.extend(
             (
                 {"event": "NODE_COMPLETED", "node": attempt.address.node_id, "attempt": attempt_id},
                 {"event": "NODE_VERIFIED", "node": attempt.address.node_id, "attempt": attempt_id},
             )
         )
-        self._persist(completed, manifest_updates=manifest_updates, events=tuple(audit_events))
+        self._persist(
+            completed,
+            manifest_updates=manifest_updates,
+            events=tuple(audit_events),
+            reuse_uncommitted_events=mutation_identity is not None,
+        )
         return completed
+
+    def commit_runtime_owned_aggregation(
+        self,
+        run_id: str,
+        attempt_id: str,
+        logical_path: str,
+        document: Mapping[str, Any],
+        *,
+        mutation_identity: Mapping[str, str],
+    ) -> RunSnapshot:
+        """Commit a post-verifier Aggregate while preserving the Judge producer.
+
+        Contract 0.3.2 orders ``scoring -> score_verifier`` but keeps the
+        deterministic ``transparent_score`` output owned by ``scoring``.  The
+        Runtime therefore appends the aggregate to the original verified
+        scoring Attempt only after the independent verifier node is verified.
+        """
+
+        snapshot = self.load_run(run_id)
+        if snapshot.contract_version != "0.3.2":
+            raise RuntimeContractError("Transparent Score aggregation is staged for 0.3.2 only", code="SCHEMA_VERSION_UNSUPPORTED", rule="staged_runtime")
+        attempt = next((item for item in snapshot.attempts if item.attempt_id == attempt_id), None)
+        address = NodeAddress(("competitor",), "scoring")
+        state = snapshot.node_states.get(address)
+        verifier_state = snapshot.node_states.get(NodeAddress(("competitor",), "score_verifier"))
+        if (
+            attempt is None
+            or attempt.address != address
+            or attempt.status is not AttemptStatus.COMPLETED
+            or not attempt.verified
+            or state is None
+            or state.status is not NodeStatus.VERIFIED
+            or verifier_state is None
+            or verifier_state.status is not NodeStatus.VERIFIED
+        ):
+            raise RuntimeContractError("Runtime aggregation requires verified scoring and score-verifier nodes", code="DEPENDENCY_NOT_READY", rule="score_aggregation_state")
+        artifact_type, _schema = self._validate_typed_output(snapshot, attempt_id, logical_path, document)
+        if artifact_type != "transparent_score":
+            raise RuntimeContractError("Runtime aggregation may write only Transparent Score", code="SECURITY_POLICY_VIOLATION", rule="score_aggregation_type")
+        required_identity = {"key_hash", "request_hash", "operation", "artifact_ref"}
+        if set(mutation_identity) != required_identity:
+            raise RuntimeContractError("Mutation identity is malformed", rule="mutation_receipt")
+        artifact_ref = f"{document['artifact']['id']}@{document['artifact']['version']}"
+        if mutation_identity["artifact_ref"] != artifact_ref:
+            raise RuntimeContractError("Mutation identity does not bind the Transparent Score", rule="mutation_receipt")
+        storage = self._storage_for(run_id)
+        receipt = storage.bind_mutation_receipt(**mutation_identity)
+        stored = storage.write_artifact(snapshot, attempt_id, logical_path, document, allow_existing_identical=True)
+        states = dict(snapshot.node_states)
+        states[address] = replace(state, artifact_refs=tuple(dict.fromkeys((*state.artifact_refs, stored.artifact_ref))))
+        updated = replace(snapshot, state_version=snapshot.state_version + 1, node_states=states)
+        entry = {
+            "artifact_ref": stored.artifact_ref,
+            "content_hash": stored.content_hash,
+            "operation": mutation_identity["operation"],
+            "idempotency_key_hash": mutation_identity["key_hash"],
+            "request_hash": mutation_identity["request_hash"],
+            "mutation_receipt_ref": receipt[0],
+            "mutation_receipt_hash": receipt[1],
+        }
+        self._persist(
+            updated,
+            manifest_updates={"transparent_score": entry},
+            events=(
+                {"event": "ARTIFACT_WRITTEN", "artifact": stored.artifact_ref, "attempt": attempt_id},
+                {"event": "RUNTIME_AGGREGATION_COMMITTED", "artifact": stored.artifact_ref, "attempt": attempt_id},
+            ),
+            reuse_uncommitted_events=True,
+        )
+        return updated
 
     @staticmethod
     def _artifact_content_hash(document: Mapping[str, Any]) -> str:

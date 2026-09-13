@@ -141,7 +141,6 @@ def _validate_fact_groups(
         )
         if not isinstance(facts, list) or not facts:
             _fail("Publication Projection Fact Group has no facts")
-        provenance: set[tuple[tuple[str, ...], tuple[str, ...]]] = set()
         observed_sources: set[str] = set()
         for fact in facts:
             if not isinstance(fact, Mapping):
@@ -153,7 +152,6 @@ def _validate_fact_groups(
             claim_refs = _string_refs(fact.get("claim_refs"), pattern=_CLAIM_ID, field="claim_refs")
             evidence_refs = _string_refs(fact.get("evidence_refs"), pattern=_EVIDENCE_ID, field="evidence_refs")
             source_refs = _string_refs(fact.get("source_refs"), pattern=_SOURCE_ID, field="source_refs")
-            provenance.add((tuple(sorted(evidence_refs)), tuple(sorted(source_refs))))
             observed_sources.update(source_refs)
             expected_sources: set[str] = set()
             for claim_id in claim_refs:
@@ -180,8 +178,6 @@ def _validate_fact_groups(
                 _fail("Fact Binding Source closure is not minimal")
             if any(source_id not in sources_by_id for source_id in source_refs):
                 _fail("Publication Projection contains a dangling Source reference")
-        if len(provenance) != 1:
-            _fail("Facts with different Evidence/Source provenance cannot share a Fact Group")
         if set(declared_sources) != observed_sources:
             _fail("Fact Group Citation Sources do not match its Fact Bindings")
 

@@ -217,7 +217,7 @@ def test_fails_closed_on_dangling_mismatched_or_duplicate_provenance(mutation, e
     assert captured.value.code == "SCHEMA_INVALID"
 
 
-def test_rejects_fact_groups_that_merge_different_provenance():
+def test_accepts_multiple_individually_closed_provenance_sets_in_one_fact_group():
     values = _inputs()
     second = deepcopy(values["base_projection"]["fact_groups"][0]["facts"][0])
     second.update(
@@ -235,8 +235,15 @@ def test_rejects_fact_groups_that_merge_different_provenance():
         "evidence_ids": ["EV-CHART-001", "EV-TEXT-001"],
         "source_ids": ["SRC-CHART-001", "SRC-TEXT-001"],
     }
-    with pytest.raises(RuntimeContractError, match="different Evidence/Source provenance"):
-        _materialize(values)
+    result = _materialize(values)
+    base_group = result["fact_groups"][0]
+    assert [fact["fact_id"] for fact in base_group["facts"]] == ["FACT-TEXT-001", "FACT-TEXT-002"]
+    assert base_group["citation_source_ids"] == ["SRC-TEXT-001", "SRC-CHART-001"]
+    assert result["citation_closure"] == {
+        "claim_ids": ["CL-CHART-001", "CL-TEXT-001"],
+        "evidence_ids": ["EV-CHART-001", "EV-TEXT-001"],
+        "source_ids": ["SRC-CHART-001", "SRC-TEXT-001"],
+    }
 
 
 def test_rejects_duplicate_chart_type_even_with_distinct_artifact_identity():

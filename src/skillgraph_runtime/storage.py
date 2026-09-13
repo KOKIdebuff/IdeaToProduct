@@ -47,6 +47,9 @@ from .errors import RuntimeContractError
 _RUN_ID = re.compile(r"^run_[A-Za-z0-9_-]+$")
 _ARTIFACT_ID = re.compile(r"^ART-[A-Za-z0-9_-]+$")
 _ARTIFACT_REF = re.compile(r"^ART-[A-Za-z0-9_-]+@[1-9][0-9]*$")
+_MAX_RUNTIME_ASSET_BYTES = 10 * 1024 * 1024
+_MAX_RUNTIME_ASSET_TOTAL_BYTES = 64 * 1024 * 1024
+_MAX_RUNTIME_ASSET_COUNT = 512
 _RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{item}" for item in range(1, 10)), *(f"LPT{item}" for item in range(1, 10))}
 _EVENT_FIELDS = frozenset(
     {
@@ -79,6 +82,13 @@ class StoredArtifact:
     artifact_type: str
     content_hash: str
     logical_path: str
+
+
+@dataclass(frozen=True)
+class StoredAssetInventory:
+    inventory_ref: str
+    content_hash: str
+    assets: tuple[tuple[str, str], ...]
 
 
 @dataclass(frozen=True)
@@ -399,6 +409,23 @@ class RunStorage:
             stream.flush()
             os.fsync(stream.fileno())
 
+    def _write_immutable_bytes(self, relative: str, value: bytes) -> None:
+        path = self._path(relative)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            if path.is_symlink() or not path.is_file() or path.read_bytes() != value:
+                raise RuntimeContractError(
+                    "Append-only Runtime bytes conflict with an existing record",
+                    code="STATE_VERSION_CONFLICT",
+                    rule="storage_append_only",
+                    details={"path": relative},
+                )
+            return
+        with path.open("xb") as stream:
+            stream.write(value)
+            stream.flush()
+            os.fsync(stream.fileno())
+
     def _append_jsonl(self, relative: str, value: Mapping[str, Any]) -> None:
         """Append one durable JSON object to a Runtime-owned audit ledger."""
 
@@ -543,6 +570,58 @@ class RunStorage:
             },
         )
 
+    def bind_mutation_receipt(
+        self,
+        *,
+        key_hash: str,
+        request_hash: str,
+        operation: str,
+        artifact_ref: str,
+    ) -> tuple[str, str]:
+        """Bind a staged mutation key without treating the receipt as success."""
+
+        if re.fullmatch(r"sha256:[0-9a-f]{64}", key_hash) is None or re.fullmatch(r"sha256:[0-9a-f]{64}", request_hash) is None:
+            raise RuntimeContractError("Mutation receipt hashes are malformed", rule="mutation_receipt")
+        if not isinstance(operation, str) or not operation or _ARTIFACT_REF.fullmatch(artifact_ref) is None:
+            raise RuntimeContractError("Mutation receipt identity is malformed", rule="mutation_receipt")
+        value = {
+            "key_hash": key_hash,
+            "request_hash": request_hash,
+            "operation": operation,
+            "artifact_ref": artifact_ref,
+        }
+        encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        digest = "sha256:" + hashlib.sha256(encoded).hexdigest()
+        reference = f"runtime/mutation-receipts/{key_hash.removeprefix('sha256:')}.json"
+        path = self._path(reference)
+        if path.exists():
+            if path.is_symlink() or not path.is_file() or self._read_json(reference) != value:
+                raise RuntimeContractError(
+                    "Mutation key was reused with a different request",
+                    code="IDEMPOTENCY_CONFLICT",
+                    rule="mutation_receipt",
+                )
+        else:
+            self._write_immutable_json(reference, value)
+        return reference, digest
+
+    def validate_mutation_receipt(
+        self,
+        *,
+        receipt_ref: str,
+        receipt_hash: str,
+        expected: Mapping[str, str],
+    ) -> None:
+        path = self._path(receipt_ref)
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeContractError("Mutation receipt path is invalid", code="SECURITY_POLICY_VIOLATION", rule="mutation_receipt")
+        value = self._read_json(receipt_ref)
+        if value != dict(expected):
+            raise RuntimeContractError("Mutation receipt binding is invalid", code="SCHEMA_INVALID", rule="mutation_receipt")
+        encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        if "sha256:" + hashlib.sha256(encoded).hexdigest() != receipt_hash:
+            raise RuntimeContractError("Mutation receipt hash is invalid", code="SCHEMA_INVALID", rule="mutation_receipt")
+
     def read_artifact(self, artifact_ref: str) -> Mapping[str, Any]:
         if _ARTIFACT_REF.fullmatch(artifact_ref) is None:
             raise RuntimeContractError("Artifact reference is malformed", rule="artifact_ref")
@@ -550,6 +629,88 @@ class RunStorage:
         if not isinstance(value, Mapping):
             raise RuntimeContractError("Stored Artifact is not an object", code="SCHEMA_INVALID", rule="artifact_read")
         return value
+
+    def write_asset_inventory(self, *, artifact_ref: str, assets: Mapping[str, bytes]) -> StoredAssetInventory:
+        """Write assets below an Artifact-ref namespace and inventory their logical paths."""
+
+        if _ARTIFACT_REF.fullmatch(artifact_ref) is None or not isinstance(assets, Mapping) or not assets:
+            raise RuntimeContractError("Artifact asset inventory is malformed", rule="asset_inventory")
+        if len(assets) > _MAX_RUNTIME_ASSET_COUNT:
+            raise RuntimeContractError("Artifact asset count exceeds the Runtime limit", code="SECURITY_POLICY_VIOLATION", rule="asset_budget")
+        records: list[tuple[str, str]] = []
+        total_bytes = 0
+        for raw_logical, payload in sorted(assets.items()):
+            logical = _safe_relative(raw_logical).as_posix()
+            if not logical.startswith("artifacts/"):
+                raise RuntimeContractError(
+                    "Artifact asset logical path is outside the Artifact tree",
+                    code="SECURITY_POLICY_VIOLATION",
+                    rule="asset_path",
+                )
+            if not isinstance(payload, bytes) or not payload:
+                raise RuntimeContractError("Artifact asset payload is malformed", code="SCHEMA_INVALID", rule="asset_payload")
+            total_bytes += len(payload)
+            if len(payload) > _MAX_RUNTIME_ASSET_BYTES or total_bytes > _MAX_RUNTIME_ASSET_TOTAL_BYTES:
+                raise RuntimeContractError("Artifact asset bytes exceed the Runtime limit", code="SECURITY_POLICY_VIOLATION", rule="asset_budget")
+            digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+            physical = f"runtime/artifact-assets/{artifact_ref}/payload/{logical}"
+            self._write_immutable_bytes(physical, payload)
+            records.append((logical, digest))
+        document = {
+            "artifact_ref": artifact_ref,
+            "assets": [{"logical_path": logical, "content_hash": digest} for logical, digest in records],
+        }
+        encoded = json.dumps(document, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        digest = "sha256:" + hashlib.sha256(encoded).hexdigest()
+        reference = f"runtime/artifact-assets/{artifact_ref}/inventory.json"
+        path = self._path(reference)
+        if path.exists():
+            if path.is_symlink() or not path.is_file() or self._read_json(reference) != document:
+                raise RuntimeContractError("Asset inventory conflicts with an existing record", code="STATE_VERSION_CONFLICT", rule="asset_inventory")
+        else:
+            self._write_immutable_json(reference, document)
+        return StoredAssetInventory(reference, digest, tuple(records))
+
+    def read_asset_inventory(
+        self,
+        *,
+        artifact_ref: str,
+        inventory_ref: str,
+        inventory_hash: str,
+    ) -> Mapping[str, bytes]:
+        expected_ref = f"runtime/artifact-assets/{artifact_ref}/inventory.json"
+        if inventory_ref != expected_ref:
+            raise RuntimeContractError("Asset inventory reference is invalid", code="SCHEMA_INVALID", rule="asset_inventory")
+        inventory_path = self._path(inventory_ref)
+        if inventory_path.is_symlink() or not inventory_path.is_file():
+            raise RuntimeContractError("Asset inventory path is invalid", code="SECURITY_POLICY_VIOLATION", rule="asset_inventory")
+        document = self._read_json(inventory_ref)
+        if not isinstance(document, Mapping) or document.get("artifact_ref") != artifact_ref or not isinstance(document.get("assets"), list):
+            raise RuntimeContractError("Asset inventory is invalid", code="SCHEMA_INVALID", rule="asset_inventory")
+        if len(document["assets"]) > _MAX_RUNTIME_ASSET_COUNT:
+            raise RuntimeContractError("Asset inventory exceeds the Runtime count limit", code="SECURITY_POLICY_VIOLATION", rule="asset_budget")
+        encoded = json.dumps(document, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        if "sha256:" + hashlib.sha256(encoded).hexdigest() != inventory_hash:
+            raise RuntimeContractError("Asset inventory hash is invalid", code="SCHEMA_INVALID", rule="asset_inventory_hash")
+        result: dict[str, bytes] = {}
+        total_bytes = 0
+        for item in document["assets"]:
+            if not isinstance(item, Mapping) or not isinstance(item.get("logical_path"), str) or not isinstance(item.get("content_hash"), str):
+                raise RuntimeContractError("Asset inventory entry is invalid", code="SCHEMA_INVALID", rule="asset_inventory")
+            logical = _safe_relative(item["logical_path"]).as_posix()
+            if logical in result:
+                raise RuntimeContractError("Asset inventory contains duplicate logical paths", code="SCHEMA_INVALID", rule="asset_inventory")
+            physical = self._path(f"runtime/artifact-assets/{artifact_ref}/payload/{logical}")
+            if physical.is_symlink() or not physical.is_file():
+                raise RuntimeContractError("Current Artifact asset is missing", code="ARTIFACT_MISSING", rule="asset_read")
+            payload = physical.read_bytes()
+            total_bytes += len(payload)
+            if len(payload) > _MAX_RUNTIME_ASSET_BYTES or total_bytes > _MAX_RUNTIME_ASSET_TOTAL_BYTES:
+                raise RuntimeContractError("Current Artifact assets exceed the Runtime byte limit", code="SECURITY_POLICY_VIOLATION", rule="asset_budget")
+            if "sha256:" + hashlib.sha256(payload).hexdigest() != item["content_hash"]:
+                raise RuntimeContractError("Current Artifact asset hash is invalid", code="SCHEMA_INVALID", rule="asset_hash")
+            result[logical] = payload
+        return result
 
     def read_source_index(self, state_version: int) -> tuple[Mapping[str, Any], ...]:
         """Load the newest committed-or-earlier private Source Index snapshot.
@@ -828,6 +989,8 @@ class RunStorage:
         attempt_id: str,
         logical_path: str,
         document: Mapping[str, Any],
+        *,
+        allow_existing_identical: bool = False,
     ) -> StoredArtifact:
         if not isinstance(document, Mapping) or not isinstance(document.get("artifact"), Mapping):
             raise RuntimeContractError("Artifact Repository requires an Artifact Metadata Header", code="SCHEMA_INVALID", rule="artifact_header")
@@ -861,5 +1024,17 @@ class RunStorage:
         ).hexdigest()
         if header.get("content_hash") != digest:
             raise RuntimeContractError("Artifact content_hash does not match canonical Artifact content", code="SCHEMA_INVALID", rule="artifact_hash")
-        self._write_immutable_json(f"artifacts/by-ref/{artifact_ref}.json", canonical)
+        relative = f"artifacts/by-ref/{artifact_ref}.json"
+        path = self._path(relative)
+        if path.exists():
+            if not allow_existing_identical:
+                raise RuntimeContractError("Append-only Runtime record already exists", rule="storage_append_only", details={"path": relative})
+            if path.is_symlink() or not path.is_file() or self._read_json(relative) != canonical:
+                raise RuntimeContractError(
+                    "Artifact identity conflicts with an interrupted immutable write",
+                    code="STATE_VERSION_CONFLICT",
+                    rule="artifact_identity_conflict",
+                )
+        else:
+            self._write_immutable_json(relative, canonical)
         return StoredArtifact(artifact_ref, header.get("type", ""), digest, logical)
