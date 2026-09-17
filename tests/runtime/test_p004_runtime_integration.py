@@ -208,6 +208,9 @@ def test_staged_runtime_commits_chart_projection_and_offline_report(tmp_path: Pa
     )["replayed"] is True
     report_entry = manifest["current_artifacts"]["competitor_report"]
     report_document = storage.read_artifact(report["artifact_ref"])
+    assert report_document["publication_kind"] == "INITIAL"
+    assert report_document["verification"] == {"status": "PENDING", "verification_ref": None}
+    assert report_document["scoring"] == {"status": "NOT_PERFORMED", "score_collection_ref": None}
     report_assets = storage.read_asset_inventory(
         artifact_ref=report["artifact_ref"],
         inventory_ref=report_entry["asset_inventory_ref"],

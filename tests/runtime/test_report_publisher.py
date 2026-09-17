@@ -191,6 +191,10 @@ def test_publishes_offline_contained_report_and_typed_artifact_proposal(tmp_path
         artifact=_header("ART-COMPETITOR-REPORT-001", "competitor_report"),
         publication_pointer=pointer,
     )
+    assert artifact["publication_kind"] == "INITIAL"
+    assert artifact["base_report_ref"] is None
+    assert artifact["verification"] == {"status": "PENDING", "verification_ref": None}
+    assert artifact["scoring"] == {"status": "NOT_PERFORMED", "score_collection_ref": None}
     context = load_bundle_context(ContractBundle("0.3.2", ROOT / "contracts" / "0.3.2", "staged", "audit"))
     schemas, registry = load_schemas(context.schema_dir)
     assert validate_instance(

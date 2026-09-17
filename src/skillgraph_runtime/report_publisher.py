@@ -404,13 +404,22 @@ def build_competitor_report_document(
                 "Report publication path is malformed", code="SCHEMA_INVALID", rule="report_artifact"
             )
         _safe_relative(value)
+    if publication_pointer["base_report_ref"] is not None:
+        raise RuntimeContractError(
+            "Initial Report builder cannot publish a successor",
+            code="STATE_VERSION_CONFLICT",
+            rule="report_cas",
+        )
     return {
         "artifact": dict(artifact),
+        "publication_kind": "INITIAL",
         "report_publication_projection_ref": publication_pointer["report_publication_projection_ref"],
         "chart_bundle_collection_ref": publication_pointer["chart_bundle_collection_ref"],
         "report_root_ref": publication_pointer["root_ref"],
         "inventory_ref": publication_pointer["inventory_ref"],
         "base_report_ref": publication_pointer["base_report_ref"],
+        "verification": {"status": "PENDING", "verification_ref": None},
+        "scoring": {"status": "NOT_PERFORMED", "score_collection_ref": None},
     }
 
 
