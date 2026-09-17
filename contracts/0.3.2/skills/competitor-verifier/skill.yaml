@@ -4,7 +4,7 @@ skill:
   type: verifier
 inputs:
   required: [research_contract, competitor_candidates, competitor_ranking, competitor_deep_dive, competitor_dataset, competitor_analysis, report_projection, chart_bundle_collection, report_publication_projection, competitor_report]
-  optional: [source_index, transparent_score, score_verification]
+  optional: [source_index, transparent_score, transparent_score_collection, score_verification]
 reads:
   - artifacts/01-contract/research-contract.yaml
   - artifacts/02-research/competitors/candidates.json
@@ -15,16 +15,23 @@ reads:
   - artifacts/02-research/competitors/report-projection.json
   - artifacts/02-research/competitors/report-publication-projection.json
   - artifacts/02-research/competitors/scoring/scores/
+  - artifacts/02-research/competitors/scoring/score-collection.json
   - artifacts/02-research/competitors/scoring/verifications/
   - artifacts/02-research/competitors/visualizations/
   - artifacts/02-research/competitors/competitor-report.html
+  - artifacts/02-research/competitors/report-publication.json
   - artifacts/02-research/source-index.json
 writes:
   - artifacts/02-research/competitors/competitor-verification.yaml
+  - artifacts/02-research/competitors/report-publication.json
 output_contracts:
   - artifact_type: competitor_verification
     write: artifacts/02-research/competitors/competitor-verification.yaml
     schema_ref: schemas/verification.schema.json#/$defs/competitor_verification
+    template_ref: null
+  - artifact_type: competitor_report
+    write: artifacts/02-research/competitors/report-publication.json
+    schema_ref: schemas/competitor.schema.json#/$defs/competitor_report
     template_ref: null
 evidence:
   required: true
@@ -33,6 +40,8 @@ permissions:
   external_access: none
   workspace_write:
     - artifacts/02-research/competitors/competitor-verification.yaml
+    - artifacts/02-research/competitors/report-publication.json
+    - artifacts/02-research/competitors/report-bundles/
   secrets: forbidden
 budget:
   timeout_minutes: 20
@@ -40,11 +49,60 @@ budget:
 executor:
   allowed_adapter_types: [fixture, manual, host_agent]
 completion:
-  required_outputs: [competitor_verification]
+  required_outputs: [competitor_verification, competitor_report]
   retry_targets_required_on_gap: true
   return_to: competitor_verifier
   citation_closure_verified: true
   canonical_svg_verified: true
   png_partial_disclosed: true
   report_successor_scope: verification_summary_only
+  optional_scoring_path:
+    nodes: [scoring, score_verifier, score_publisher]
+    absent_terminal_status: SKIPPED
+    base_when_absent: INITIAL
+    base_when_present: SCORE_SUCCESSOR
+    outcomes:
+      SCORING_DISABLED:
+        node_statuses: {scoring: SKIPPED, score_verifier: SKIPPED, score_publisher: SKIPPED}
+        collection: absent
+        score_successor: absent
+        current_report_kind: INITIAL
+        scoring_status: NOT_PERFORMED
+        verifier_base_kind: INITIAL
+        research_gap: none
+        verifier_action: continue
+      SCORING_AVAILABLE:
+        node_statuses: {scoring: VERIFIED, score_verifier: VERIFIED, score_publisher: VERIFIED}
+        collection: current
+        score_successor: current
+        current_report_kind: SCORE_SUCCESSOR
+        scoring_status: AVAILABLE
+        verifier_base_kind: SCORE_SUCCESSOR
+        research_gap: none
+        verifier_action: continue
+      SCORING_UNAVAILABLE_AFTER_RETRY:
+        node_statuses: {scoring: VERIFIED, score_verifier: VERIFIED, score_publisher: SKIPPED}
+        collection: absent
+        score_successor: absent
+        current_report_kind: INITIAL
+        scoring_status: NOT_PERFORMED
+        verifier_base_kind: INITIAL
+        research_gap: targeted_opened
+        verifier_action: continue
+  report_publication:
+    owner: runtime
+    role: verification_publisher
+    publication_kind: VERIFICATION_SUCCESSOR
+    base_report_rule: current_required
+    mutation_scope: [verification]
+    preserve_fields: [scoring, report_publication_projection_ref, chart_bundle_collection_ref]
+    bundle_identity: successor_artifact_ref
+    bundle_root: artifacts/02-research/competitors/report-bundles/
+    root_filename: competitor-report.html
+    inventory_filename: inventory.json
+    new_bundle_required: true
+    compare_and_swap: current_report_ref
+    stale_base_action: reject
+    idempotent_replay: same_base_kind_and_section_ref
+    history: append_only
 on_failure: []

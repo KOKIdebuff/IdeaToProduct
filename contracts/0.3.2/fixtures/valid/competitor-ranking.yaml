@@ -1,0 +1,15 @@
+artifact:
+  id: ART-RANKING-001
+  type: competitor_ranking
+  schema_version: 0.3.2
+  version: 1
+  produced_by: {skill: competitor-ranking, attempt: ATT-RANKING-001}
+  created_at: "2026-09-01T00:00:00Z"
+  supersedes: null
+  status: active
+selection_methodology: Evidence-backed candidate scope for deterministic transparent scoring.
+ranking:
+  - {competitor_id: cmp_001, rank: 1, score: null, rationale: Included in the approved ranking scope.}
+  - {competitor_id: cmp_002, rank: 2, score: null, rationale: Included in the approved ranking scope.}
+  - {competitor_id: cmp_003, rank: 3, score: null, rationale: Included in the approved ranking scope.}
+excluded_candidates: []

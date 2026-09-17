@@ -68,6 +68,40 @@ publishes the HTML Bundle through the Runtime-owned single writer using an
 explicit base Report reference, append-only version directories, and an atomic
 current Report pointer. A stale base must fail rather than overwrite.
 
+## Report Successor Contract
+
+The typed `competitor_report` envelope distinguishes `INITIAL`,
+`SCORE_SUCCESSOR`, and `VERIFICATION_SUCCESSOR`. The initial Builder writes a
+null base, `PENDING` verification, and `NOT_PERFORMED` scoring. A successor
+must name its direct base Report in both `base_report_ref` and
+`artifact.supersedes` and increment the same Report identity. Every publication
+has a new immutable Bundle rooted at `report-bundles/<report-id>@<version>/`;
+its `report_root_ref` and `inventory_ref` must identify files under that exact
+successor root and differ from the base Bundle refs. Successors preserve the
+upstream projection and chart-collection refs but do not reuse predecessor
+HTML or inventory files.
+
+The Runtime-owned Score Publisher may replace only the scoring section with a
+local `transparent_score_collection` ref. The Competitor Verifier first writes
+its Verification Artifact and may then replace only the verification section
+with that local ref. Both publishers use current-root compare-and-swap,
+idempotent replay for the same base/kind/section ref, append-only history, and
+fail closed on a stale base. Projection statuses remain initial projection
+state and are never mutated to publish a successor.
+
+Scoring is an all-or-none optional path. When it is absent, `scoring`,
+`score_verifier`, and `score_publisher` terminate as `SKIPPED`, and the
+Competitor Verifier publishes from the Initial Report. When it is present, the
+Verifier waits for the Score Publisher and publishes from the current Score
+successor.
+
+If scoring was attempted but retry exhaustion leaves no legal Score, the
+independent Score Verifier opens a targeted Research Gap, the optional Score
+Publisher terminates `SKIPPED`, no collection or Score successor is published,
+and the current Initial Report remains `NOT_PERFORMED`. The Competitor Verifier
+may continue from that Initial base; this Bundle does not implement retry
+routing in Runtime.
+
 ## Transparent Scoring
 
 Each Profile selects one self-contained, five-dimension, equal-weight Rubric.
@@ -76,6 +110,14 @@ required for a `PARTIAL` aggregate, with available weights re-normalized to
 `1.0`. An independent Score Verifier checks each Judgment; exhausted retry
 opens a targeted Research Gap. Candidate Selection score is not Transparent
 Score. These are declarative contracts only and contain no scoring runtime.
+
+Per-competitor `transparent_score` Artifacts remain immutable history. One
+Runtime-owned `transparent_score_collection` is the Current Manifest entry for
+a ranking scope. It binds the Candidate Ranking, Profile, Rubric and version to
+an exact, complete set of per-competitor score refs. The ordered refs follow
+final score descending, verified coverage descending, and competitor ID
+ascending; equal score and coverage share a competition rank. The collection
+does not duplicate score values, coverage, rank, or tie state.
 
 ## Superseded Format Clauses
 

@@ -172,6 +172,11 @@ def test_business_schema_named_definitions_are_stable(contract_env):
     assert set(schemas["readiness-result.schema.json"]["$defs"]) >= {"readiness_result"}
 
 
+def test_v032_schema_exposes_report_successors_and_score_collection():
+    schema = load_document(ROOT / "contracts" / "0.3.2" / "schemas" / "competitor.schema.json")
+    assert {"competitor_report", "transparent_score", "transparent_score_collection", "versioned_artifact_ref"} <= set(schema["$defs"])
+
+
 def test_skill_requires_machine_readable_output_contracts(contract_env):
     schemas, registry, _ = contract_env
     skill = load_document(ROOT / "fixtures" / "contracts" / "valid" / "skill.yaml")

@@ -1,0 +1,17 @@
+artifact:
+  id: ART-COMPETITOR-REPORT-001
+  type: competitor_report
+  schema_version: 0.3.2
+  version: 2
+  produced_by: {skill: competitor-score-publisher, attempt: ATT-SCORE-PUBLISH-001}
+  created_at: "2026-09-03T00:01:00Z"
+  supersedes: ART-COMPETITOR-REPORT-001@1
+  status: active
+publication_kind: SCORE_SUCCESSOR
+report_publication_projection_ref: ART-REPORT-PUBLICATION-PROJECTION-001@1
+chart_bundle_collection_ref: ART-CHART-COLLECTION-001@1
+report_root_ref: artifacts/02-research/competitors/report-bundles/ART-COMPETITOR-REPORT-001@2/competitor-report.html
+inventory_ref: artifacts/02-research/competitors/report-bundles/ART-COMPETITOR-REPORT-001@2/inventory.json
+base_report_ref: ART-COMPETITOR-REPORT-001@1
+verification: {status: PENDING, verification_ref: null}
+scoring: {status: AVAILABLE, score_collection_ref: ART-TRANSPARENT-SCORE-COLLECTION-001@1}

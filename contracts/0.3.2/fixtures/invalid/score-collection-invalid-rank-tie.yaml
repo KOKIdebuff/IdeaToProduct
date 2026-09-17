@@ -1,0 +1,12 @@
+artifact: {id: ART-TRANSPARENT-SCORE-COLLECTION-001, type: transparent_score_collection, schema_version: 0.3.2, version: 1, produced_by: {skill: competitor-score-publisher, attempt: ATT-SCORE-PUBLISH-001}, created_at: "2026-09-03T00:00:30Z", supersedes: null, status: active}
+candidate_ranking_ref: ART-RANKING-001@1
+profile_ref: developer_tool@0.3.2
+rubric_ref: rubrics/developer-tool-scoring.yaml
+rubric_version: 1.0.0
+ordering_rule: final_score_desc_then_coverage_desc_then_competitor_id_asc
+rank_rule: competition_rank
+tie_rule: shared_rank_on_equal_score_and_coverage
+score_refs:
+  - {competitor_id: cmp_002, artifact_ref: ART-TRANSPARENT-SCORE-002@1}
+  - {competitor_id: cmp_001, artifact_ref: ART-TRANSPARENT-SCORE-001@1}
+  - {competitor_id: cmp_003, artifact_ref: ART-TRANSPARENT-SCORE-003@1}

@@ -5,13 +5,13 @@ artifact:
   version: 1
   produced_by: {skill: competitor-report-builder, attempt: ATT-00022}
   created_at: "2026-09-03T00:00:00Z"
-  supersedes: null
+  supersedes: ART-COMPETITOR-REPORT-000@1
   status: active
 publication_kind: INITIAL
 report_publication_projection_ref: ART-REPORT-PUBLICATION-PROJECTION-001@1
 chart_bundle_collection_ref: ART-CHART-COLLECTION-001@1
 report_root_ref: artifacts/02-research/competitors/report-bundles/ART-COMPETITOR-REPORT-001@1/competitor-report.html
 inventory_ref: artifacts/02-research/competitors/report-bundles/ART-COMPETITOR-REPORT-001@1/inventory.json
-base_report_ref: null
+base_report_ref: ART-COMPETITOR-REPORT-000@1
 verification: {status: PENDING, verification_ref: null}
 scoring: {status: NOT_PERFORMED, score_collection_ref: null}

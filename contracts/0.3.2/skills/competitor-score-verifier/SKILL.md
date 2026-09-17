@@ -21,7 +21,7 @@ Validate role separation, refs, Rubric version, result/action consistency, retry
 ## Failure Conditions
 Reject malformed, unsupported, unclosed, out-of-range, or Rubric-drifting Judgments.
 ## Retry Strategy
-Request bounded retry; on exhaustion open a targeted Research Gap and leave the dimension unresolved.
+Request bounded retry; on exhaustion open a targeted Research Gap and leave the dimension unresolved. If no legal collection remains, Score Publisher must be `SKIPPED`, publish no Score successor, and allow Competitor Verifier to continue from the current Initial Report.
 ## Forbidden Behavior
 Do not conduct Research, change Rubric/weights, create facts, calculate totals, or write Report sections.
 ## Permissions
@@ -31,4 +31,4 @@ Use at most 20 minutes and no external Sources.
 ## Executor Requirements
 Verifier role must be independent from the Judge and has no Runtime write authority.
 ## Next
-Pass accepted verification refs to the deterministic Runtime Aggregator.
+Pass accepted verification refs to the deterministic Runtime Aggregator, which persists per-competitor scores before `competitor-score-publisher` creates the collection and Report successor.

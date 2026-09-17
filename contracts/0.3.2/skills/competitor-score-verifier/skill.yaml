@@ -27,4 +27,9 @@ completion:
   required_outputs: [score_verification]
   independent_role_required: true
   retry_exhaustion_action: OPEN_RESEARCH_GAP
+  retry_exhaustion_closure:
+    targeted_research_gap_required: true
+    legal_collection_allowed: false
+    score_successor_allowed: false
+  next_owner: runtime_aggregator_then_score_publisher
 on_failure: [emit_research_gap]

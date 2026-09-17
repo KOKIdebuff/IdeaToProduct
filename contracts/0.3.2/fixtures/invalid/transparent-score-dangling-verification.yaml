@@ -17,7 +17,7 @@ coverage: 0.8
 status: PARTIAL
 missing_dimension_ids: [ecosystem_maturity]
 dimension_judgment_refs: [ART-JUDGMENT-001@1]
-score_verification_refs: [ART-SCORE-VERIFY-001@1]
+score_verification_refs: [ART-SCORE-VERIFY-UNKNOWN@1]
 final_score: 8
 rank: 2
 tie_status: TIED

@@ -4,6 +4,7 @@
   "$defs": {
     "category": {"enum": ["direct", "indirect", "substitute", "adjacent", "platform_risk"]},
     "competitor_id": {"type": "string", "pattern": "^cmp_[a-z0-9][a-z0-9_-]*$"},
+    "versioned_artifact_ref": {"type": "string", "pattern": "^ART-[A-Za-z0-9_-]+@[1-9][0-9]*$"},
     "artifact_type": {
       "type": "object",
       "properties": {"type": {"type": "string"}}
@@ -340,15 +341,107 @@
         {"$ref": "artifact.schema.json"},
         {
           "type": "object",
-          "required": ["artifact", "report_publication_projection_ref", "chart_bundle_collection_ref", "report_root_ref", "inventory_ref", "base_report_ref"],
+          "required": ["artifact", "publication_kind", "report_publication_projection_ref", "chart_bundle_collection_ref", "report_root_ref", "inventory_ref", "base_report_ref", "verification", "scoring"],
           "properties": {
             "artifact": {"type": "object", "properties": {"type": {"const": "competitor_report"}}},
-            "report_publication_projection_ref": {"$ref": "common.schema.json#/$defs/artifact_ref"},
-            "chart_bundle_collection_ref": {"$ref": "common.schema.json#/$defs/artifact_ref"},
+            "publication_kind": {"enum": ["INITIAL", "SCORE_SUCCESSOR", "VERIFICATION_SUCCESSOR"]},
+            "report_publication_projection_ref": {"$ref": "#/$defs/versioned_artifact_ref"},
+            "chart_bundle_collection_ref": {"$ref": "#/$defs/versioned_artifact_ref"},
             "report_root_ref": {"$ref": "common.schema.json#/$defs/relative_path"},
             "inventory_ref": {"$ref": "common.schema.json#/$defs/relative_path"},
-            "base_report_ref": {"oneOf": [{"$ref": "common.schema.json#/$defs/artifact_ref"}, {"type": "null"}]}
+            "base_report_ref": {"oneOf": [{"$ref": "#/$defs/versioned_artifact_ref"}, {"type": "null"}]},
+            "verification": {
+              "type": "object",
+              "required": ["status", "verification_ref"],
+              "properties": {
+                "status": {"enum": ["PENDING", "PASS", "PARTIAL", "FAIL"]},
+                "verification_ref": {"oneOf": [{"$ref": "#/$defs/versioned_artifact_ref"}, {"type": "null"}]}
+              },
+              "allOf": [
+                {
+                  "if": {"properties": {"status": {"const": "PENDING"}}, "required": ["status"]},
+                  "then": {"properties": {"verification_ref": {"type": "null"}}},
+                  "else": {"properties": {"verification_ref": {"$ref": "#/$defs/versioned_artifact_ref"}}}
+                }
+              ],
+              "additionalProperties": false
+            },
+            "scoring": {
+              "type": "object",
+              "required": ["status", "score_collection_ref"],
+              "properties": {
+                "status": {"enum": ["NOT_PERFORMED", "AVAILABLE"]},
+                "score_collection_ref": {"oneOf": [{"$ref": "#/$defs/versioned_artifact_ref"}, {"type": "null"}]}
+              },
+              "allOf": [
+                {
+                  "if": {"properties": {"status": {"const": "NOT_PERFORMED"}}, "required": ["status"]},
+                  "then": {"properties": {"score_collection_ref": {"type": "null"}}},
+                  "else": {"properties": {"score_collection_ref": {"$ref": "#/$defs/versioned_artifact_ref"}}}
+                }
+              ],
+              "additionalProperties": false
+            }
           },
+          "allOf": [
+            {
+              "if": {"properties": {"publication_kind": {"const": "INITIAL"}}, "required": ["publication_kind"]},
+              "then": {
+                "properties": {
+                  "artifact": {
+                    "properties": {
+                      "produced_by": {"properties": {"skill": {"const": "competitor-report-builder"}}},
+                      "supersedes": {"type": "null"}
+                    }
+                  },
+                  "base_report_ref": {"type": "null"},
+                  "verification": {
+                    "properties": {"status": {"const": "PENDING"}, "verification_ref": {"type": "null"}}
+                  },
+                  "scoring": {
+                    "properties": {"status": {"const": "NOT_PERFORMED"}, "score_collection_ref": {"type": "null"}}
+                  }
+                }
+              }
+            },
+            {
+              "if": {"properties": {"publication_kind": {"const": "SCORE_SUCCESSOR"}}, "required": ["publication_kind"]},
+              "then": {
+                "properties": {
+                  "artifact": {
+                    "properties": {
+                      "produced_by": {"properties": {"skill": {"const": "competitor-score-publisher"}}},
+                      "supersedes": {"$ref": "#/$defs/versioned_artifact_ref"}
+                    }
+                  },
+                  "base_report_ref": {"$ref": "#/$defs/versioned_artifact_ref"},
+                  "scoring": {
+                    "properties": {"status": {"const": "AVAILABLE"}, "score_collection_ref": {"$ref": "#/$defs/versioned_artifact_ref"}}
+                  }
+                }
+              }
+            },
+            {
+              "if": {"properties": {"publication_kind": {"const": "VERIFICATION_SUCCESSOR"}}, "required": ["publication_kind"]},
+              "then": {
+                "properties": {
+                  "artifact": {
+                    "properties": {
+                      "produced_by": {"properties": {"skill": {"const": "competitor-verifier"}}},
+                      "supersedes": {"$ref": "#/$defs/versioned_artifact_ref"}
+                    }
+                  },
+                  "base_report_ref": {"$ref": "#/$defs/versioned_artifact_ref"},
+                  "verification": {
+                    "properties": {
+                      "status": {"enum": ["PASS", "PARTIAL", "FAIL"]},
+                      "verification_ref": {"$ref": "#/$defs/versioned_artifact_ref"}
+                    }
+                  }
+                }
+              }
+            }
+          ],
           "additionalProperties": false
         }
       ]
@@ -483,6 +576,45 @@
             "rank": {"type": ["integer", "null"], "minimum": 1},
             "tie_status": {"enum": ["UNIQUE", "TIED", "NOT_RANKED"]},
             "candidate_ranking_ref": {"$ref": "common.schema.json#/$defs/artifact_ref"}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "transparent_score_collection": {
+      "allOf": [
+        {"$ref": "artifact.schema.json"},
+        {
+          "type": "object",
+          "required": ["artifact", "candidate_ranking_ref", "profile_ref", "rubric_ref", "rubric_version", "ordering_rule", "rank_rule", "tie_rule", "score_refs"],
+          "properties": {
+            "artifact": {
+              "type": "object",
+              "properties": {
+                "type": {"const": "transparent_score_collection"},
+                "produced_by": {"properties": {"skill": {"const": "competitor-score-publisher"}}}
+              }
+            },
+            "candidate_ranking_ref": {"$ref": "#/$defs/versioned_artifact_ref"},
+            "profile_ref": {"type": "string", "pattern": "^(?:developer_tool|ai_agent_product|consumer_app|b2b_saas)@0\\.3\\.2$"},
+            "rubric_ref": {"type": "string", "pattern": "^rubrics/[a-z0-9-]+-scoring\\.yaml$"},
+            "rubric_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+            "ordering_rule": {"const": "final_score_desc_then_coverage_desc_then_competitor_id_asc"},
+            "rank_rule": {"const": "competition_rank"},
+            "tie_rule": {"const": "shared_rank_on_equal_score_and_coverage"},
+            "score_refs": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["competitor_id", "artifact_ref"],
+                "properties": {
+                  "competitor_id": {"$ref": "#/$defs/competitor_id"},
+                  "artifact_ref": {"$ref": "#/$defs/versioned_artifact_ref"}
+                },
+                "additionalProperties": false
+              }
+            }
           },
           "additionalProperties": false
         }

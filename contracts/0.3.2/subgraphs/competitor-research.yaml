@@ -34,13 +34,19 @@ output_contracts:
     producer: scoring
   - artifact_type: score_verification
     producer: score_verifier
+  - artifact_type: transparent_score_collection
+    producer: score_publisher
   - artifact_type: chart_bundle_collection
     producer: chart_rendering
   - artifact_type: report_publication_projection
     producer: report_publication_projection
   - artifact_type: competitor_report
     producer: report_builder
+  - artifact_type: competitor_report
+    producer: score_publisher
   - artifact_type: competitor_verification
+    producer: competitor_verifier
+  - artifact_type: competitor_report
     producer: competitor_verifier
 
 nodes:
@@ -135,8 +141,16 @@ nodes:
       - report_publication_projection
     required: true
 
+  score_publisher:
+    kind: skill
+    skill: competitor-score-publisher
+    depends_on:
+      - report_builder
+      - score_verifier
+    required: false
+
   competitor_verifier:
     kind: verifier
     skill: competitor-verifier
-    depends_on: [report_builder]
+    depends_on: [report_builder, score_publisher]
     required: true

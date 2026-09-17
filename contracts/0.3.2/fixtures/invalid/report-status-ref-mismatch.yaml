@@ -13,5 +13,5 @@ chart_bundle_collection_ref: ART-CHART-COLLECTION-001@1
 report_root_ref: artifacts/02-research/competitors/report-bundles/ART-COMPETITOR-REPORT-001@1/competitor-report.html
 inventory_ref: artifacts/02-research/competitors/report-bundles/ART-COMPETITOR-REPORT-001@1/inventory.json
 base_report_ref: null
-verification: {status: PENDING, verification_ref: null}
+verification: {status: PENDING, verification_ref: ART-COMPETITOR-VERIFICATION-001@1}
 scoring: {status: NOT_PERFORMED, score_collection_ref: null}

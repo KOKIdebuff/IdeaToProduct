@@ -4,7 +4,7 @@ skill:
   type: generator
 inputs:
   required: [report_publication_projection, chart_bundle_collection, product_profile]
-  optional: [source_index, transparent_score]
+  optional: [source_index]
 reads:
   - artifacts/02-research/competitors/report-publication-projection.json
   - artifacts/02-research/competitors/visualizations/
@@ -35,4 +35,20 @@ completion:
   initial_verification_status: PENDING
   missing_score_status: NOT_PERFORMED
   immutable_bundle_required: true
+  report_publication:
+    owner: runtime
+    role: initial_builder
+    publication_kind: INITIAL
+    base_report_rule: must_be_null
+    mutation_scope: [initial_presentation]
+    preserve_fields: []
+    bundle_identity: successor_artifact_ref
+    bundle_root: artifacts/02-research/competitors/report-bundles/
+    root_filename: competitor-report.html
+    inventory_filename: inventory.json
+    new_bundle_required: true
+    compare_and_swap: current_report_ref
+    stale_base_action: reject
+    idempotent_replay: same_base_kind_and_section_ref
+    history: append_only
 on_failure: [emit_research_gap]

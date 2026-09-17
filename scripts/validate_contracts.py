@@ -12,6 +12,7 @@ import re
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, replace
+from decimal import Decimal, InvalidOperation
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
@@ -151,6 +152,7 @@ V032_EXTRA_SKILL_IDS = frozenset({
     "competitor-chart-rendering",
     "report-publication-projection",
     "competitor-report-builder",
+    "competitor-score-publisher",
 }) - frozenset({"competitor-visualization"})
 
 
@@ -227,6 +229,7 @@ V032_COMPETITOR_SUBGRAPH_NODE_CONTRACTS: dict[str, tuple[str, str]] = {
     "chart_rendering": ("skill", "competitor-chart-rendering"),
     "report_publication_projection": ("skill", "report-publication-projection"),
     "report_builder": ("skill", "competitor-report-builder"),
+    "score_publisher": ("skill", "competitor-score-publisher"),
 }
 
 
@@ -988,10 +991,21 @@ def subgraph_semantics(
     }
     terminal_nodes = sorted(set(nodes) - dependency_targets)
     if subgraph_id == "competitor-research":
-        expected_terminals = ["competitor_verifier", "score_verifier"] if contract_version in {"0.3.1", "0.3.2"} else ["competitor_verifier"]
+        expected_terminals = ["competitor_verifier"] if contract_version == "0.3.2" else (["competitor_verifier", "score_verifier"] if contract_version == "0.3.1" else ["competitor_verifier"])
         if terminal_nodes != expected_terminals:
             expectation = " and ".join(expected_terminals)
             diagnostics.append(Diagnostic(source, "$.nodes", "subgraph_terminal", f"Competitor Research terminal nodes must be exactly {expectation}"))
+        if contract_version == "0.3.2":
+            expected_optional = {
+                "scoring": (["fact_provenance"], False),
+                "score_verifier": (["scoring"], False),
+                "score_publisher": (["report_builder", "score_verifier"], False),
+                "competitor_verifier": (["report_builder", "score_publisher"], True),
+            }
+            for node_id, (dependencies, required) in expected_optional.items():
+                node = nodes.get(node_id, {})
+                if node.get("depends_on") != dependencies or node.get("required") is not required:
+                    diagnostics.append(Diagnostic(source, f"$.nodes.{node_id}", "subgraph_optional_scoring", "v0.3.2 scoring path must preserve its optional dependencies and final Verifier gate"))
 
     for index, output in enumerate(document.get("output_contracts", [])):
         if not isinstance(output, dict):
@@ -1248,6 +1262,15 @@ def skill_markdown_diagnostics(
         content = [line.strip() for line in lines[line_index + 1:end] if line.strip() and not line.lstrip().startswith("#")]
         if not content:
             diagnostics.append(Diagnostic(source, f"$.sections.{title}", "skill_markdown_contract", f"Section {title} must not be empty"))
+    if expected_id == "competitor-report-builder":
+        forbidden_claims = (
+            "generate the profile-required chart bundles",
+            "generate renderer-independent data and chart specs",
+            "write a `chart_bundle` collection",
+        )
+        lowered = text.lower()
+        if any(claim in lowered for claim in forbidden_claims):
+            diagnostics.append(Diagnostic(source, "$", "report_builder_ownership", "Report Builder must consume Chart outputs and must not claim Chart generation ownership"))
     return diagnostics
 
 
@@ -1842,6 +1865,207 @@ def svg_static_diagnostics(document: dict[str, Any], source: str) -> list[Diagno
     return diagnostics
 
 
+def _artifact_document_ref(document: Mapping[str, Any]) -> str | None:
+    artifact = document.get("artifact")
+    if not isinstance(artifact, Mapping):
+        return None
+    identifier, version = artifact.get("id"), artifact.get("version")
+    if not isinstance(identifier, str) or not isinstance(version, int) or isinstance(version, bool) or version < 1:
+        return None
+    return f"{identifier}@{version}"
+
+
+def report_successor_diagnostics(
+    successor: Mapping[str, Any],
+    source: str,
+    base_report: Mapping[str, Any] | None = None,
+) -> list[Diagnostic]:
+    """Validate append-only Report lineage and section-only successor ownership."""
+
+    diagnostics: list[Diagnostic] = []
+    kind = successor.get("publication_kind")
+    artifact = successor.get("artifact") if isinstance(successor.get("artifact"), Mapping) else {}
+    successor_ref = _artifact_document_ref(successor)
+    expected_root = f"artifacts/02-research/competitors/report-bundles/{successor_ref}/" if successor_ref else None
+    if expected_root is None:
+        diagnostics.append(Diagnostic(source, "$.artifact", "report_bundle_identity", "Report Bundle requires a versioned Artifact identity"))
+    else:
+        expected_files = {"report_root_ref": "competitor-report.html", "inventory_ref": "inventory.json"}
+        for field, filename in expected_files.items():
+            if successor.get(field) != expected_root + filename:
+                diagnostics.append(Diagnostic(source, f"$.{field}", "report_bundle_identity", f"{field} must identify {filename} inside the versioned Report Bundle {expected_root}"))
+    if kind == "INITIAL":
+        if successor.get("base_report_ref") is not None or artifact.get("supersedes") is not None:
+            diagnostics.append(Diagnostic(source, "$.base_report_ref", "report_successor_base", "Initial Report must not reference or supersede a base Report"))
+        return diagnostics
+    if kind not in {"SCORE_SUCCESSOR", "VERIFICATION_SUCCESSOR"}:
+        return diagnostics
+    if not isinstance(base_report, Mapping):
+        return [Diagnostic(source, "$.base_report_ref", "report_successor_base", "Report successor semantics require its explicit base Report fixture")]
+    base_ref = _artifact_document_ref(base_report)
+    for field in ("report_root_ref", "inventory_ref"):
+        if successor.get(field) == base_report.get(field):
+            diagnostics.append(Diagnostic(source, f"$.{field}", "report_bundle_reuse", "Report successor must publish a new immutable Bundle, not reuse the base Bundle ref"))
+    if base_ref is None or successor.get("base_report_ref") != base_ref or artifact.get("supersedes") != base_ref:
+        diagnostics.append(Diagnostic(source, "$.base_report_ref", "report_successor_base", "Report successor base_report_ref and artifact.supersedes must identify the direct base Report"))
+    base_artifact = base_report.get("artifact") if isinstance(base_report.get("artifact"), Mapping) else {}
+    if artifact.get("id") != base_artifact.get("id") or artifact.get("version") != base_artifact.get("version", 0) + 1:
+        diagnostics.append(Diagnostic(source, "$.artifact", "report_successor_version", "Report successor must increment the same Artifact identity by exactly one version"))
+    preserved = (
+        ["verification", "report_publication_projection_ref", "chart_bundle_collection_ref"]
+        if kind == "SCORE_SUCCESSOR"
+        else ["scoring", "report_publication_projection_ref", "chart_bundle_collection_ref"]
+    )
+    changed = [field for field in preserved if successor.get(field) != base_report.get(field)]
+    if changed:
+        diagnostics.append(Diagnostic(source, "$", "report_section_ownership", f"{kind} changed fields outside its owned section: {', '.join(changed)}"))
+    return diagnostics
+
+
+def transparent_score_collection_diagnostics(
+    collection: Mapping[str, Any],
+    score_documents: Iterable[Mapping[str, Any]],
+    candidate_ranking: Mapping[str, Any],
+    source: str,
+    judgment_documents: Iterable[Mapping[str, Any]] = (),
+    verification_documents: Iterable[Mapping[str, Any]] = (),
+) -> list[Diagnostic]:
+    """Validate the deterministic Runtime-owned Current Score collection envelope."""
+
+    diagnostics: list[Diagnostic] = []
+    entries = collection.get("score_refs")
+    if not isinstance(entries, list):
+        return diagnostics
+    competitor_ids = [entry.get("competitor_id") for entry in entries if isinstance(entry, Mapping)]
+    artifact_refs = [entry.get("artifact_ref") for entry in entries if isinstance(entry, Mapping)]
+    if len(competitor_ids) != len(set(competitor_ids)):
+        diagnostics.append(Diagnostic(source, "$.score_refs", "score_collection_duplicate_competitor", "Score collection competitor IDs must be unique"))
+    if len(artifact_refs) != len(set(artifact_refs)):
+        diagnostics.append(Diagnostic(source, "$.score_refs", "score_collection_duplicate_ref", "Score collection Artifact refs must be unique"))
+
+    by_ref: dict[str, Mapping[str, Any]] = {}
+    for score in score_documents:
+        reference = _artifact_document_ref(score)
+        if reference is not None:
+            by_ref[reference] = score
+    judgments_by_ref = {
+        reference: document
+        for document in judgment_documents
+        if (reference := _artifact_document_ref(document)) is not None
+    }
+    verifications_by_ref = {
+        reference: document
+        for document in verification_documents
+        if (reference := _artifact_document_ref(document)) is not None
+    }
+    verification_owners: dict[str, str] = {}
+    resolved: list[Mapping[str, Any]] = []
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, Mapping):
+            continue
+        reference = entry.get("artifact_ref")
+        score = by_ref.get(reference) if isinstance(reference, str) else None
+        if score is None:
+            diagnostics.append(Diagnostic(source, f"$.score_refs[{index}].artifact_ref", "score_collection_unknown_ref", f"Unknown immutable Transparent Score ref: {reference}"))
+            continue
+        resolved.append(score)
+        if score.get("artifact", {}).get("type") != "transparent_score" or score.get("artifact", {}).get("status") != "active" or entry.get("competitor_id") != score.get("competitor_id"):
+            diagnostics.append(Diagnostic(source, f"$.score_refs[{index}]", "score_collection_identity", "Score entry must bind its competitor to one active immutable transparent_score"))
+        for field in ("candidate_ranking_ref", "profile_ref", "rubric_ref", "rubric_version"):
+            if collection.get(field) != score.get(field):
+                diagnostics.append(Diagnostic(source, f"$.score_refs[{index}]", "score_collection_identity", f"Score collection and member disagree on {field}"))
+        judgment_refs = score.get("dimension_judgment_refs")
+        verification_refs = score.get("score_verification_refs")
+        if not isinstance(judgment_refs, list) or not isinstance(verification_refs, list) or not judgment_refs or len(judgment_refs) != len(verification_refs):
+            diagnostics.append(Diagnostic(source, f"$.score_refs[{index}]", "score_collection_verification_binding", "Each Score must have a one-to-one non-empty Judgment and Verification ref set"))
+            continue
+        judgment_set = set(judgment_refs)
+        bound_judgments: set[str] = set()
+        for judgment_ref in judgment_refs:
+            judgment = judgments_by_ref.get(judgment_ref)
+            header = judgment.get("artifact", {}) if isinstance(judgment, Mapping) else {}
+            if not isinstance(header, Mapping) or header.get("type") != "dimension_judgment" or header.get("status") != "active" or header.get("produced_by", {}).get("skill") != "competitor-scoring":
+                diagnostics.append(Diagnostic(source, f"$.score_refs[{index}]", "score_collection_judgment_ref", f"Judgment ref is missing, inactive, or of the wrong type/producer: {judgment_ref}"))
+                continue
+            if judgment.get("competitor_id") != score.get("competitor_id") or judgment.get("rubric_ref") != score.get("rubric_ref") or judgment.get("rubric_version") != score.get("rubric_version"):
+                diagnostics.append(Diagnostic(source, f"$.score_refs[{index}]", "score_collection_verification_binding", f"Judgment does not bind this competitor and Rubric: {judgment_ref}"))
+        for verification_ref in verification_refs:
+            verification = verifications_by_ref.get(verification_ref)
+            header = verification.get("artifact", {}) if isinstance(verification, Mapping) else {}
+            if not isinstance(header, Mapping) or header.get("type") != "score_verification" or header.get("status") != "active" or header.get("produced_by", {}).get("skill") != "competitor-score-verifier":
+                diagnostics.append(Diagnostic(source, f"$.score_refs[{index}]", "score_collection_verification_ref", f"Independent Score Verification ref is missing, inactive, or of the wrong type/producer: {verification_ref}"))
+                continue
+            if verification.get("result") != "ACCEPT" or verification.get("next_action") != "AGGREGATE" or verification.get("retry_exhausted") is not False or verification.get("issues") != []:
+                diagnostics.append(Diagnostic(source, f"$.score_refs[{index}]", "score_collection_verification_accept", f"Verification must be ACCEPT/AGGREGATE without issues or retry exhaustion: {verification_ref}"))
+            bound_ref = verification.get("judgment_ref")
+            if bound_ref not in judgment_set or bound_ref in bound_judgments:
+                diagnostics.append(Diagnostic(source, f"$.score_refs[{index}]", "score_collection_verification_binding", f"Verification does not bind one unique Judgment in this Score: {verification_ref}"))
+            else:
+                bound_judgments.add(bound_ref)
+            prior_competitor = verification_owners.setdefault(verification_ref, str(score.get("competitor_id")))
+            if prior_competitor != score.get("competitor_id"):
+                diagnostics.append(Diagnostic(source, f"$.score_refs[{index}]", "score_collection_verification_binding", f"Verification ref is reused across competitors: {verification_ref}"))
+        if bound_judgments != judgment_set:
+            diagnostics.append(Diagnostic(source, f"$.score_refs[{index}]", "score_collection_verification_binding", "Accepted Verification refs must cover exactly the Score Judgment refs"))
+
+    ranking_ref = _artifact_document_ref(candidate_ranking)
+    if collection.get("candidate_ranking_ref") != ranking_ref:
+        diagnostics.append(Diagnostic(source, "$.candidate_ranking_ref", "score_collection_identity", "Score collection must identify the supplied Candidate Ranking"))
+    ranking_rows = candidate_ranking.get("ranking") if isinstance(candidate_ranking, Mapping) else None
+    ranked_competitors = {
+        row.get("competitor_id")
+        for row in ranking_rows or []
+        if isinstance(row, Mapping) and isinstance(row.get("competitor_id"), str)
+    }
+    if set(competitor_ids) != ranked_competitors:
+        diagnostics.append(Diagnostic(source, "$.score_refs", "score_collection_coverage", "Score collection must cover the Candidate Ranking scope exactly once"))
+
+    def numeric(value: Any) -> Decimal | None:
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            return Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            return None
+
+    eligible_rows: list[tuple[Mapping[str, Any], Decimal, Decimal, str]] = []
+    unranked: list[Mapping[str, Any]] = []
+    for score in resolved:
+        final_score = numeric(score.get("final_score"))
+        coverage = numeric(score.get("coverage"))
+        reference = _artifact_document_ref(score)
+        if final_score is None:
+            unranked.append(score)
+        elif coverage is None or reference is None:
+            diagnostics.append(Diagnostic(source, "$.score_refs", "score_collection_identity", "Ranked Transparent Score must have numeric coverage and an immutable Artifact ref"))
+        else:
+            eligible_rows.append((score, final_score, coverage, reference))
+    eligible_rows.sort(key=lambda row: (-row[1], -row[2], str(row[0].get("competitor_id"))))
+    eligible = [row[0] for row in eligible_rows]
+    unranked.sort(key=lambda score: str(score.get("competitor_id")))
+    expected_rank: dict[str, int] = {}
+    for position, score in enumerate(eligible, start=1):
+        reference = _artifact_document_ref(score)
+        previous = eligible[position - 2] if position > 1 else None
+        peer = (score.get("final_score"), score.get("coverage"))
+        if previous is not None and (previous.get("final_score"), previous.get("coverage")) == peer:
+            previous_ref = _artifact_document_ref(previous)
+            if reference is not None and previous_ref is not None:
+                expected_rank[reference] = expected_rank[previous_ref]
+        elif reference is not None:
+            expected_rank[reference] = position
+        tied = sum(1 for item in eligible if (item.get("final_score"), item.get("coverage")) == peer) > 1
+        if reference is not None and (score.get("rank") != expected_rank.get(reference) or score.get("tie_status") != ("TIED" if tied else "UNIQUE")):
+            diagnostics.append(Diagnostic(source, "$.score_refs", "score_collection_rank_tie", "Transparent Score rank/tie values do not match deterministic competition ranking"))
+    for score in unranked:
+        if score.get("rank") is not None or score.get("tie_status") != "NOT_RANKED":
+            diagnostics.append(Diagnostic(source, "$.score_refs", "score_collection_rank_tie", "Unranked Transparent Scores must use null rank and NOT_RANKED"))
+    expected_order = [_artifact_document_ref(score) for score in [*eligible, *unranked]]
+    if artifact_refs != expected_order:
+        diagnostics.append(Diagnostic(source, "$.score_refs", "score_collection_order", "Score refs are not in the deterministic score/coverage/competitor order"))
+    return diagnostics
+
+
 def _collect_ids(cases: list[dict[str, Any]]) -> tuple[set[str], set[str], set[str], set[str], dict[str, dict[str, Any]]]:
     source_ids: set[str] = set()
     claim_ids: set[str] = set()
@@ -1961,7 +2185,197 @@ def skill_repository_diagnostics(
                 diagnostics.extend(skill_markdown_diagnostics(markdown, markdown_source, skill_id, interaction_required=interaction_required))
 
     diagnostics.extend(readiness_writer_diagnostics(documents))
+    diagnostics.extend(publisher_contract_diagnostics(documents, contract_version=contract_version))
     return diagnostics, checked, documents, output_types
+
+
+def publisher_contract_diagnostics(
+    documents: Mapping[str, dict[str, Any]],
+    *,
+    contract_version: str = CONTRACT_VERSION,
+) -> list[Diagnostic]:
+    """Lock the staged v0.3.2 Report publisher roles without widening skill.schema.json."""
+
+    if contract_version != "0.3.2":
+        return []
+    common = {
+        "owner": "runtime",
+        "compare_and_swap": "current_report_ref",
+        "stale_base_action": "reject",
+        "idempotent_replay": "same_base_kind_and_section_ref",
+        "history": "append_only",
+        "bundle_identity": "successor_artifact_ref",
+        "bundle_root": "artifacts/02-research/competitors/report-bundles/",
+        "root_filename": "competitor-report.html",
+        "inventory_filename": "inventory.json",
+        "new_bundle_required": True,
+    }
+    expectations: dict[str, dict[str, Any]] = {
+        "competitor-report-builder": {
+            "publication": {
+                **common,
+                "role": "initial_builder",
+                "publication_kind": "INITIAL",
+                "base_report_rule": "must_be_null",
+                "mutation_scope": ["initial_presentation"],
+                "preserve_fields": [],
+            },
+            "required_inputs": {"report_publication_projection", "chart_bundle_collection", "product_profile"},
+            "writes": {"artifacts/02-research/competitors/report-publication.json"},
+            "grants": {
+                "artifacts/02-research/competitors/report-publication.json",
+                "artifacts/02-research/competitors/report-bundles/",
+            },
+            "outputs": {"competitor_report"},
+            "required_reads": {
+                "artifacts/02-research/competitors/report-publication-projection.json",
+                "artifacts/02-research/competitors/visualizations/",
+                "templates/competitor-report.html",
+            },
+        },
+        "competitor-score-publisher": {
+            "publication": {
+                **common,
+                "role": "score_publisher",
+                "publication_kind": "SCORE_SUCCESSOR",
+                "base_report_rule": "current_required",
+                "mutation_scope": ["scoring"],
+                "preserve_fields": [
+                    "verification",
+                    "report_publication_projection_ref",
+                    "chart_bundle_collection_ref",
+                ],
+            },
+            "required_inputs": {"competitor_ranking", "product_profile", "scoring_rubric", "transparent_score", "score_verification", "competitor_report"},
+            "writes": {
+                "artifacts/02-research/competitors/scoring/score-collection.json",
+                "artifacts/02-research/competitors/report-publication.json",
+            },
+            "grants": {
+                "artifacts/02-research/competitors/scoring/score-collection.json",
+                "artifacts/02-research/competitors/report-publication.json",
+                "artifacts/02-research/competitors/report-bundles/",
+            },
+            "outputs": {"transparent_score_collection", "competitor_report"},
+            "required_reads": {
+                "artifacts/02-research/competitors/ranking.yaml",
+                "artifacts/02-research/competitors/report-publication.json",
+                "artifacts/02-research/competitors/scoring/scores/",
+                "artifacts/02-research/competitors/scoring/verifications/",
+                "profiles/",
+                "rubrics/",
+            },
+        },
+        "competitor-verifier": {
+            "publication": {
+                **common,
+                "role": "verification_publisher",
+                "publication_kind": "VERIFICATION_SUCCESSOR",
+                "base_report_rule": "current_required",
+                "mutation_scope": ["verification"],
+                "preserve_fields": [
+                    "scoring",
+                    "report_publication_projection_ref",
+                    "chart_bundle_collection_ref",
+                ],
+            },
+            "required_inputs": {"competitor_report"},
+            "writes": {
+                "artifacts/02-research/competitors/competitor-verification.yaml",
+                "artifacts/02-research/competitors/report-publication.json",
+            },
+            "grants": {
+                "artifacts/02-research/competitors/competitor-verification.yaml",
+                "artifacts/02-research/competitors/report-publication.json",
+                "artifacts/02-research/competitors/report-bundles/",
+            },
+            "outputs": {"competitor_verification", "competitor_report"},
+            "required_reads": {
+                "artifacts/02-research/competitors/report-publication.json",
+                "artifacts/02-research/competitors/scoring/score-collection.json",
+            },
+        },
+    }
+    diagnostics: list[Diagnostic] = []
+    for skill_id, expected in expectations.items():
+        document = documents.get(skill_id)
+        source = f"skills/{skill_id}/skill.yaml"
+        if not isinstance(document, dict):
+            diagnostics.append(Diagnostic(source, "$", "publisher_contract", "Required v0.3.2 Report publisher Skill Contract is missing"))
+            continue
+        publication = document.get("completion", {}).get("report_publication")
+        if publication != expected["publication"]:
+            diagnostics.append(Diagnostic(source, "$.completion.report_publication", "publisher_contract", f"Report publication ownership must equal {expected['publication']}"))
+        required_inputs = set(document.get("inputs", {}).get("required", []))
+        if not expected["required_inputs"] <= required_inputs:
+            diagnostics.append(Diagnostic(source, "$.inputs.required", "publisher_contract", "Report publisher is missing required typed inputs"))
+        writes = set(document.get("writes", []))
+        if writes != expected["writes"]:
+            diagnostics.append(Diagnostic(source, "$.writes", "publisher_contract", f"Report publisher writes must equal {sorted(expected['writes'])}"))
+        outputs = {
+            item.get("artifact_type")
+            for item in document.get("output_contracts", [])
+            if isinstance(item, dict)
+        }
+        if outputs != expected["outputs"]:
+            diagnostics.append(Diagnostic(source, "$.output_contracts", "publisher_contract", f"Report publisher outputs must equal {sorted(expected['outputs'])}"))
+        reads = set(document.get("reads", []))
+        if not expected["required_reads"] <= reads:
+            diagnostics.append(Diagnostic(source, "$.reads", "publisher_contract", "Report publisher is missing required base or section input reads"))
+        grants = set(document.get("permissions", {}).get("workspace_write", []))
+        if grants != expected["grants"]:
+            diagnostics.append(Diagnostic(source, "$.permissions.workspace_write", "publisher_contract", "Report publisher workspace grants must exactly match its declared publisher outputs and immutable assets"))
+    builder = documents.get("competitor-report-builder", {})
+    builder_inputs = set(builder.get("inputs", {}).get("optional", [])) | set(builder.get("inputs", {}).get("required", []))
+    builder_outputs = {
+        item.get("artifact_type")
+        for item in builder.get("output_contracts", [])
+        if isinstance(item, dict)
+    }
+    if "transparent_score" in builder_inputs or builder_outputs.intersection({"chart_bundle", "chart_bundle_collection", "chart_spec", "chart_data"}):
+        diagnostics.append(Diagnostic("skills/competitor-report-builder/skill.yaml", "$", "report_builder_ownership", "Initial Report Builder must consume Chart outputs and cannot own scoring or Chart generation"))
+    verifier_optional_path = documents.get("competitor-verifier", {}).get("completion", {}).get("optional_scoring_path")
+    expected_optional_path = {
+        "nodes": ["scoring", "score_verifier", "score_publisher"],
+        "absent_terminal_status": "SKIPPED",
+        "base_when_absent": "INITIAL",
+        "base_when_present": "SCORE_SUCCESSOR",
+        "outcomes": {
+            "SCORING_DISABLED": {
+                "node_statuses": {"scoring": "SKIPPED", "score_verifier": "SKIPPED", "score_publisher": "SKIPPED"},
+                "collection": "absent", "score_successor": "absent", "current_report_kind": "INITIAL",
+                "scoring_status": "NOT_PERFORMED", "verifier_base_kind": "INITIAL", "research_gap": "none", "verifier_action": "continue",
+            },
+            "SCORING_AVAILABLE": {
+                "node_statuses": {"scoring": "VERIFIED", "score_verifier": "VERIFIED", "score_publisher": "VERIFIED"},
+                "collection": "current", "score_successor": "current", "current_report_kind": "SCORE_SUCCESSOR",
+                "scoring_status": "AVAILABLE", "verifier_base_kind": "SCORE_SUCCESSOR", "research_gap": "none", "verifier_action": "continue",
+            },
+            "SCORING_UNAVAILABLE_AFTER_RETRY": {
+                "node_statuses": {"scoring": "VERIFIED", "score_verifier": "VERIFIED", "score_publisher": "SKIPPED"},
+                "collection": "absent", "score_successor": "absent", "current_report_kind": "INITIAL",
+                "scoring_status": "NOT_PERFORMED", "verifier_base_kind": "INITIAL", "research_gap": "targeted_opened", "verifier_action": "continue",
+            },
+        },
+    }
+    if verifier_optional_path != expected_optional_path:
+        diagnostics.append(Diagnostic("skills/competitor-verifier/skill.yaml", "$.completion.optional_scoring_path", "publisher_contract", "Competitor Verifier must declare the complete optional scoring path and its absent/present base semantics"))
+    expected_gate = {
+        "only_when": "SCORING_AVAILABLE",
+        "disabled_status": "SKIPPED",
+        "unavailable_after_retry_status": "SKIPPED",
+        "no_collection_no_successor": True,
+    }
+    if documents.get("competitor-score-publisher", {}).get("completion", {}).get("publication_gate") != expected_gate:
+        diagnostics.append(Diagnostic("skills/competitor-score-publisher/skill.yaml", "$.completion.publication_gate", "publisher_contract", "Score Publisher must publish only when a legal collection is available"))
+    expected_retry = {
+        "targeted_research_gap_required": True,
+        "legal_collection_allowed": False,
+        "score_successor_allowed": False,
+    }
+    if documents.get("competitor-score-verifier", {}).get("completion", {}).get("retry_exhaustion_closure") != expected_retry:
+        diagnostics.append(Diagnostic("skills/competitor-score-verifier/skill.yaml", "$.completion.retry_exhaustion_closure", "publisher_contract", "Retry exhaustion must open a targeted gap and forbid collection/successor publication"))
+    return diagnostics
 
 
 def readiness_writer_diagnostics(documents: Mapping[str, dict[str, Any]]) -> list[Diagnostic]:
@@ -2141,6 +2555,69 @@ def fixture_diagnostics(
                         case_diagnostics.extend(research_origin_diagnostics(idea_document, document, source))
             if "projection_references" in semantics and isinstance(document, dict):
                 case_diagnostics.extend(citation_closure_diagnostics(document, source, source_records))
+            if contract_version == "0.3.2" and "report_successor" in semantics and isinstance(document, dict):
+                base_report = None
+                base_fixture = spec.get("base_report_fixture")
+                if isinstance(base_fixture, str):
+                    try:
+                        base_path = resolve_repo_path(base_fixture, root=bundle_root, allowed_root="fixtures", must_exist=True, reject_symlinks=True)
+                        loaded_base = load_document(base_path)
+                    except (OSError, ValueError, TypeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+                        case_diagnostics.append(Diagnostic(source, "$.base_report_fixture", "fixture_load", str(exc)))
+                    else:
+                        if isinstance(loaded_base, dict):
+                            base_report = loaded_base
+                        else:
+                            case_diagnostics.append(Diagnostic(source, "$.base_report_fixture", "fixture_load", "Base Report fixture must be an object"))
+                case_diagnostics.extend(report_successor_diagnostics(document, source, base_report))
+            if contract_version == "0.3.2" and "score_collection" in semantics and isinstance(document, dict):
+                score_fixtures = spec.get("score_fixtures")
+                judgment_fixtures = spec.get("judgment_fixtures")
+                verification_fixtures = spec.get("verification_fixtures")
+                ranking_fixture = spec.get("candidate_ranking_fixture")
+                related_groups = (
+                    ("score_fixtures", score_fixtures, "transparent_score"),
+                    ("judgment_fixtures", judgment_fixtures, "dimension_judgment"),
+                    ("verification_fixtures", verification_fixtures, "score_verification"),
+                )
+                if not isinstance(ranking_fixture, str) or any(not isinstance(items, list) or not items or not all(isinstance(item, str) for item in items) for _, items, _ in related_groups):
+                    case_diagnostics.append(Diagnostic(source, "$", "fixture_manifest", "score_collection semantics require ranking, score, Judgment, and Verification fixture refs"))
+                else:
+                    related_documents: dict[str, list[dict[str, Any]]] = {}
+                    candidate_ranking: dict[str, Any] | None = None
+                    for group_name, group_paths, artifact_type in related_groups:
+                        related_documents[group_name] = []
+                        for related in group_paths:
+                            try:
+                                related_path = resolve_repo_path(related, root=bundle_root, allowed_root="fixtures", must_exist=True, reject_symlinks=True)
+                                related_document = load_document(related_path)
+                            except (OSError, ValueError, TypeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+                                case_diagnostics.append(Diagnostic(source, f"$.{group_name}", "fixture_load", str(exc)))
+                                continue
+                            if not isinstance(related_document, dict):
+                                case_diagnostics.append(Diagnostic(source, f"$.{group_name}", "fixture_load", "Related Artifact fixture must be an object"))
+                                continue
+                            case_diagnostics.extend(validate_instance(related_document, f"competitor.schema.json#/$defs/{artifact_type}", related, schemas, registry))
+                            related_documents[group_name].append(related_document)
+                    try:
+                        ranking_path = resolve_repo_path(ranking_fixture, root=bundle_root, allowed_root="fixtures", must_exist=True, reject_symlinks=True)
+                        ranking_document = load_document(ranking_path)
+                    except (OSError, ValueError, TypeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+                        case_diagnostics.append(Diagnostic(source, "$.candidate_ranking_fixture", "fixture_load", str(exc)))
+                    else:
+                        if isinstance(ranking_document, dict):
+                            candidate_ranking = ranking_document
+                        else:
+                            case_diagnostics.append(Diagnostic(source, "$.candidate_ranking_fixture", "fixture_load", "Candidate Ranking fixture must be an object"))
+                    if candidate_ranking is not None:
+                        case_diagnostics.extend(transparent_score_collection_diagnostics(
+                            document,
+                            related_documents["score_fixtures"],
+                            candidate_ranking,
+                            source,
+                            related_documents["judgment_fixtures"],
+                            related_documents["verification_fixtures"],
+                        ))
             if contract_version in {"0.3.1", "0.3.2"} and "chart_template" in semantics and isinstance(document, dict):
                 case_diagnostics.extend(chart_template_diagnostics(document, source, catalog))
             if contract_version in {"0.3.1", "0.3.2"} and "chart_data" in semantics and isinstance(document, dict):

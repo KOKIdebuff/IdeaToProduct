@@ -183,6 +183,62 @@ def test_competitor_subgraph_rejects_unknown_output_producer():
     assert "output_contract_producer" in rules(diagnostics)
 
 
+def test_v032_optional_scoring_path_has_one_final_terminal():
+    root = ROOT / "contracts" / "0.3.2"
+    subgraph = load_document(root / "subgraphs" / "competitor-research.yaml")
+    nodes = subgraph["nodes"]
+    catalog = build_repository_catalog(root)
+
+    assert nodes["scoring"]["required"] is False
+    assert nodes["score_verifier"] == {
+        "kind": "verifier",
+        "skill": "competitor-score-verifier",
+        "depends_on": ["scoring"],
+        "required": False,
+    }
+    assert nodes["score_publisher"] == {
+        "kind": "skill",
+        "skill": "competitor-score-publisher",
+        "depends_on": ["report_builder", "score_verifier"],
+        "required": False,
+    }
+    assert nodes["competitor_verifier"]["depends_on"] == ["report_builder", "score_publisher"]
+    verifier = load_document(root / "skills" / "competitor-verifier" / "skill.yaml")
+    optional_path = verifier["completion"]["optional_scoring_path"]
+    assert optional_path["nodes"] == ["scoring", "score_verifier", "score_publisher"]
+    assert optional_path["absent_terminal_status"] == "SKIPPED"
+    assert optional_path["base_when_absent"] == "INITIAL"
+    assert optional_path["base_when_present"] == "SCORE_SUCCESSOR"
+    routes = optional_path["outcomes"]
+    assert set(routes) == {"SCORING_DISABLED", "SCORING_AVAILABLE", "SCORING_UNAVAILABLE_AFTER_RETRY"}
+    disabled = routes["SCORING_DISABLED"]
+    assert disabled["node_statuses"] == {"scoring": "SKIPPED", "score_verifier": "SKIPPED", "score_publisher": "SKIPPED"}
+    assert disabled["collection"] == disabled["score_successor"] == "absent"
+    assert disabled["current_report_kind"] == disabled["verifier_base_kind"] == "INITIAL"
+    assert disabled["scoring_status"] == "NOT_PERFORMED" and disabled["verifier_action"] == "continue"
+    available = routes["SCORING_AVAILABLE"]
+    assert available["node_statuses"] == {"scoring": "VERIFIED", "score_verifier": "VERIFIED", "score_publisher": "VERIFIED"}
+    assert available["collection"] == available["score_successor"] == "current"
+    assert available["current_report_kind"] == available["verifier_base_kind"] == "SCORE_SUCCESSOR"
+    assert available["scoring_status"] == "AVAILABLE" and available["verifier_action"] == "continue"
+    exhausted = routes["SCORING_UNAVAILABLE_AFTER_RETRY"]
+    assert exhausted["node_statuses"] == {"scoring": "VERIFIED", "score_verifier": "VERIFIED", "score_publisher": "SKIPPED"}
+    assert exhausted["collection"] == exhausted["score_successor"] == "absent"
+    assert exhausted["current_report_kind"] == exhausted["verifier_base_kind"] == "INITIAL"
+    assert exhausted["scoring_status"] == "NOT_PERFORMED"
+    assert exhausted["research_gap"] == "targeted_opened" and exhausted["verifier_action"] == "continue"
+    publisher = load_document(root / "skills" / "competitor-score-publisher" / "skill.yaml")
+    assert publisher["completion"]["publication_gate"]["only_when"] == "SCORING_AVAILABLE"
+    assert publisher["completion"]["publication_gate"]["no_collection_no_successor"] is True
+    score_verifier = load_document(root / "skills" / "competitor-score-verifier" / "skill.yaml")
+    assert score_verifier["completion"]["retry_exhaustion_closure"] == {
+        "targeted_research_gap_required": True,
+        "legal_collection_allowed": False,
+        "score_successor_allowed": False,
+    }
+    assert subgraph_semantics(subgraph, "subgraphs/competitor-research.yaml", catalog, contract_version="0.3.2") == []
+
+
 def test_competitor_verification_gap_locks_retry_targets_and_return_to(contract_env):
     schemas, registry, _ = contract_env
     verification = {

@@ -8,6 +8,10 @@
     "idea_definition": {
       "artifact_ref": "ART-IDEA-001@1",
       "content_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "transparent_score_collection": {
+      "artifact_ref": "ART-TRANSPARENT-SCORE-COLLECTION-001@1",
+      "content_hash": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
     }
   }
 }

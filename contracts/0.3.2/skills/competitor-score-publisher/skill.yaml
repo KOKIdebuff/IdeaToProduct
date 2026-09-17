@@ -1,0 +1,61 @@
+skill:
+  id: competitor-score-publisher
+  version: 0.3.2
+  type: generator
+inputs:
+  required: [competitor_ranking, product_profile, scoring_rubric, transparent_score, score_verification, competitor_report]
+  optional: []
+reads:
+  - artifacts/02-research/competitors/ranking.yaml
+  - artifacts/02-research/competitors/report-publication.json
+  - artifacts/02-research/competitors/scoring/scores/
+  - artifacts/02-research/competitors/scoring/verifications/
+  - profiles/
+  - rubrics/
+writes:
+  - artifacts/02-research/competitors/scoring/score-collection.json
+  - artifacts/02-research/competitors/report-publication.json
+output_contracts:
+  - artifact_type: transparent_score_collection
+    write: artifacts/02-research/competitors/scoring/score-collection.json
+    schema_ref: schemas/competitor.schema.json#/$defs/transparent_score_collection
+    template_ref: null
+  - artifact_type: competitor_report
+    write: artifacts/02-research/competitors/report-publication.json
+    schema_ref: schemas/competitor.schema.json#/$defs/competitor_report
+    template_ref: null
+evidence: {required: true, provenance_required: true}
+permissions:
+  external_access: none
+  workspace_write:
+    - artifacts/02-research/competitors/scoring/score-collection.json
+    - artifacts/02-research/competitors/report-publication.json
+    - artifacts/02-research/competitors/report-bundles/
+  secrets: forbidden
+budget: {timeout_minutes: 5, max_sources: 0}
+executor: {allowed_adapter_types: [fixture, manual, host_agent]}
+completion:
+  required_outputs: [transparent_score_collection, competitor_report]
+  deterministic_collection_required: true
+  publication_gate:
+    only_when: SCORING_AVAILABLE
+    disabled_status: SKIPPED
+    unavailable_after_retry_status: SKIPPED
+    no_collection_no_successor: true
+  report_publication:
+    owner: runtime
+    role: score_publisher
+    publication_kind: SCORE_SUCCESSOR
+    base_report_rule: current_required
+    mutation_scope: [scoring]
+    preserve_fields: [verification, report_publication_projection_ref, chart_bundle_collection_ref]
+    bundle_identity: successor_artifact_ref
+    bundle_root: artifacts/02-research/competitors/report-bundles/
+    root_filename: competitor-report.html
+    inventory_filename: inventory.json
+    new_bundle_required: true
+    compare_and_swap: current_report_ref
+    stale_base_action: reject
+    idempotent_replay: same_base_kind_and_section_ref
+    history: append_only
+on_failure: [emit_research_gap]

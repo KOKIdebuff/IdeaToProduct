@@ -14,6 +14,7 @@ from scripts.validate_contracts import (
     build_repository_catalog,
     load_document,
     readiness_writer_diagnostics,
+    publisher_contract_diagnostics,
     repository_inventory_diagnostics,
     resolve_repo_path,
     skill_contract_diagnostics,
@@ -125,6 +126,31 @@ def test_build_readiness_verifier_is_the_unique_skill_writer():
         "idea-intake": second_writer,
     })
     assert "readiness_writer" in rules(diagnostics)
+
+
+def test_v032_report_publisher_roles_and_section_ownership_are_locked():
+    root = ROOT / "contracts" / "0.3.2"
+    skill_ids = ("competitor-report-builder", "competitor-score-publisher", "competitor-score-verifier", "competitor-verifier")
+    documents = {skill_id: load_document(root / "skills" / skill_id / "skill.yaml") for skill_id in skill_ids}
+    assert publisher_contract_diagnostics(documents, contract_version="0.3.2") == []
+
+    mutated = deepcopy(documents)
+    mutated["competitor-score-publisher"]["completion"]["report_publication"]["mutation_scope"] = ["scoring", "verification"]
+    assert "publisher_contract" in rules(publisher_contract_diagnostics(mutated, contract_version="0.3.2"))
+
+    for skill_id in ("competitor-score-publisher", "competitor-verifier"):
+        missing_grant = deepcopy(documents)
+        missing_grant[skill_id]["permissions"]["workspace_write"].remove("artifacts/02-research/competitors/report-bundles/")
+        assert "publisher_contract" in rules(publisher_contract_diagnostics(missing_grant, contract_version="0.3.2"))
+
+    wrong_bundle_rule = deepcopy(documents)
+    wrong_bundle_rule["competitor-score-publisher"]["completion"]["report_publication"]["new_bundle_required"] = False
+    assert "publisher_contract" in rules(publisher_contract_diagnostics(wrong_bundle_rule, contract_version="0.3.2"))
+
+    builder_markdown = (root / "skills" / "competitor-report-builder" / "SKILL.md").read_text(encoding="utf-8")
+    assert skill_markdown_diagnostics(builder_markdown, "builder.md", "competitor-report-builder") == []
+    drifted = builder_markdown.replace("Publish the initial evidence-linked Competitor Report", "Generate the Profile-required chart bundles")
+    assert "report_builder_ownership" in rules(skill_markdown_diagnostics(drifted, "builder.md", "competitor-report-builder"))
 
 
 def test_duplicate_yaml_keys_are_rejected(tmp_path):

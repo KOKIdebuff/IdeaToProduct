@@ -2,64 +2,64 @@
 
 ## Purpose
 
-Generate the Profile-required chart bundles and the evidence-linked Competitor Report from normalized data and completed analyses.
+Publish the initial evidence-linked Competitor Report from the verified publication projection and completed chart collection.
 
 ## Trigger
 
-Run after all required competitor analysis nodes finish.
+Run only after `report-publication-projection` has produced the verified Builder-facing projection.
 
 ## Inputs
 
-Require `competitor_dataset`, the `competitor_analysis` collection, `research_contract`, and active `product_profile`; accept Source Index context.
+Require the immutable `report_publication_projection`, its exact `chart_bundle_collection`, and the active `product_profile`; accept Source Index context only for the verified citation metadata already selected by the projection.
 
 ## Reads
 
-Read the declared dataset, analyses, Research Contract, Profile directory, Source Index, and `templates/competitor-report.html`.
+Read only the declared publication projection, completed chart collection, optional Source Index, and `templates/competitor-report.html`.
 
 ## Tasks
 
-Resolve the approved visualization list, generate renderer-independent data and chart specs, write insights, and assemble the static HTML report. SVG is the required canonical chart artifact; PNG is an optional compatibility artifact.
+Project the verified Fact Groups and citation metadata verbatim into the static template, reference only chart assets already declared by the chart collection, and ask the Runtime-owned immutable Publisher to commit the initial offline HTML Bundle with a null base Report.
 
 ## Required Outputs
 
-Write a `chart_bundle` collection beneath `visualizations/` and `competitor-report.html` from the declared template.
+Write one typed `competitor_report` with `publication_kind: INITIAL`, `base_report_ref: null`, `verification: PENDING/null`, and `scoring: NOT_PERFORMED/null`, backed by the committed offline HTML Bundle.
 
 ## Evidence Rules
 
-Chart data must trace to normalized fields and Evidence IDs; qualitative axes must declare methodology and insufficient data must remain explicit.
+Visible citation publisher, title, excerpt, and canonical URL values must come from verified citation metadata, be projected verbatim, and be safely escaped. The Builder must not infer, summarize, rewrite, fetch, or invent citation metadata.
 
 ## Completion Criteria
 
-Every approved required visualization exists with data, spec, canonical SVG, and insight; optional PNG rendering never replaces SVG; the report references the resulting bundles.
+The immutable initial Report references the exact publication projection and chart collection, uses only contained local assets, records the initial section states, and is published append-only through current-root compare-and-swap and idempotent replay.
 
 ## Verification
 
-Validate Profile and Research Contract coverage, Chart Schema conformance, template structure, evidence links, and output-path containment.
+Validate projection and chart collection identity, template structure, verbatim citation metadata, local asset containment, initial publication kind, null base, section states, and output-path containment.
 
 ## Failure Conditions
 
-Report missing analysis inputs, visualization data insufficiency, a missing required canonical SVG, schema failure, or template failure without fabricating data.
+Report missing or mismatched projection inputs, an incomplete chart collection, schema failure, stale current-root state, or template failure without fabricating data or changing upstream artifacts.
 
 ## Retry Strategy
 
-Retry recoverable chart-bundle assembly failures locally; emit a targeted Research Gap when required data is insufficient. Renderer-specific retry and fallback behavior remain deferred to Decision B.
+Replay an identical publication request idempotently; reject a stale or conflicting base instead of overwriting it. Return upstream projection or chart defects to their owning node.
 
 ## Forbidden Behavior
 
-Do not lower the approved chart count, guess missing values, alter the Profile, or embed untraceable claims in the report.
+Do not generate Chart Data, Chart Specs, SVG, or PNG; do not select or execute a renderer; do not alter the Profile, projection, chart collection, verified citations, or successor sections.
 
 ## Permissions
 
-Use no external access or secrets and write only the declared visualization directory and report path.
+Use no external access or secrets and write only the declared immutable Report Bundle and typed Report path through the Runtime-owned Publisher.
 
 ## Budget
 
-Use at most 20 minutes and no new external sources.
+Use at most 5 minutes and no new external sources.
 
 ## Executor Requirements
 
-The executor must preserve the declarative data and chart specification. Renderer selection, SVG generation mechanics, optional PNG generation, and any fallback policy are deferred to Decision B and are not selected by this Contract Amendment.
+The executor consumes renderer results as immutable inputs and must preserve all non-presentation facts, exact Artifact identities, safe relative paths, and verified citation metadata.
 
 ## Next
 
-Pass the dataset, analyses, visualizations, and report to `competitor-verifier`.
+Pass the initial Report to the optional Score Publisher path and then to `competitor-verifier`.
