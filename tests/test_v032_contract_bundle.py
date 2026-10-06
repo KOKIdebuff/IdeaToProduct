@@ -26,7 +26,7 @@ def test_v032_report_pipeline_bundle_is_closed_without_registry_promotion():
     assert "0.3.2" not in registry.versions
     diagnostics, checked = validate_bundle(_v032_context(), version_registry=registry)
     assert diagnostics == []
-    assert checked == 209
+    assert checked == 239
     for operation in ("new_run", "resume", "audit"):
         with pytest.raises(ContractResolutionError) as captured:
             resolve_contract_bundle("0.3.2", operation=operation, registry=registry)
@@ -113,14 +113,17 @@ def test_v032_report_rejects_status_ref_mismatches(section, status, reference_fi
 
 
 def test_v032_multi_competitor_score_collection_is_deterministic_and_complete():
-    root = _v032_context().bundle.root / "fixtures" / "valid"
-    collection = load_document(root / "transparent-score-collection.yaml")
-    ranking = load_document(root / "competitor-ranking.yaml")
-    scores = [load_document(root / name) for name in ("transparent-score.yaml", "transparent-score-002.yaml", "transparent-score-003.yaml")]
-    judgments = [load_document(root / name) for name in ("dimension-judgment.yaml", "dimension-judgment-002.yaml", "dimension-judgment-003.yaml")]
-    verifications = [load_document(root / name) for name in ("score-verification.yaml", "score-verification-002.yaml", "score-verification-003.yaml")]
+    root = _v032_context().bundle.root
+    manifest = load_document(root / "fixtures" / "manifest.json")
+    spec = next(case for case in manifest["cases"] if case["path"] == "fixtures/valid/transparent-score-collection.yaml")
+    collection = load_document(root / spec["path"])
+    ranking = load_document(root / spec["candidate_ranking_fixture"])
+    scores = [load_document(root / path) for path in spec["score_fixtures"]]
+    judgments = [load_document(root / path) for path in spec["judgment_fixtures"]]
+    verifications = [load_document(root / path) for path in spec["verification_fixtures"]]
+    rubric = load_document(root / collection["rubric_ref"])
 
-    assert transparent_score_collection_diagnostics(collection, scores, ranking, "collection.yaml", judgments, verifications) == []
+    assert transparent_score_collection_diagnostics(collection, scores, ranking, "collection.yaml", judgments, verifications, rubric) == []
     by_verification_ref = {f"{item['artifact']['id']}@{item['artifact']['version']}": item for item in verifications}
     for score in scores:
         for verification_ref in score["score_verification_refs"]:

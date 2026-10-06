@@ -10,11 +10,11 @@ Run only for `SCORING_AVAILABLE` after the independent Score Verifier has accept
 
 ## Inputs
 
-Require the approved Candidate Ranking, active Profile, exact Rubric version, complete per-competitor Transparent Scores, their verification artifacts, and the current base `competitor_report`.
+Require the approved Candidate Ranking, active Profile, exact Rubric version, immutable Dimension Judgments, complete per-competitor Transparent Scores, their independent verification artifacts, and the current base `competitor_report`.
 
 ## Reads
 
-Read only the declared ranking, current Report, immutable scores and score verifications, Profile, and Rubric paths.
+Read only the declared ranking, current Report, immutable Dimension Judgments, scores and score verifications, Profile, and Rubric paths.
 
 ## Tasks
 
@@ -26,7 +26,7 @@ Write one `transparent_score_collection` and one `competitor_report` with `publi
 
 ## Evidence Rules
 
-Every collection member must resolve to one independently verified immutable `transparent_score` with matching ranking, Profile, Rubric, and Rubric version. No score value is copied into the collection.
+Every collection member must resolve to one immutable `transparent_score`; every referenced scored dimension must resolve to a Rubric member and an active independent `ACCEPT`/`AGGREGATE` verification. The Publisher recomputes coverage, missing dimensions, effective weights, status and final score before accepting the collection. No score value is copied into the collection, and the Publisher cannot modify Judgments.
 
 ## Completion Criteria
 

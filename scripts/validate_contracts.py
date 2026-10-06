@@ -1922,6 +1922,129 @@ def report_successor_diagnostics(
     return diagnostics
 
 
+def _decimal_value(value: Any) -> Decimal | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def transparent_score_aggregation_diagnostics(
+    score: Mapping[str, Any],
+    judgment_documents: Iterable[Mapping[str, Any]],
+    verification_documents: Iterable[Mapping[str, Any]],
+    scoring_rubric: Mapping[str, Any],
+    source: str,
+) -> tuple[list[Diagnostic], str | None]:
+    """Recompute one staged Transparent Score only from Rubric-approved accepted Judgments."""
+
+    diagnostics: list[Diagnostic] = []
+    rubric_header = scoring_rubric.get("rubric") if isinstance(scoring_rubric.get("rubric"), Mapping) else {}
+    dimension_rows = scoring_rubric.get("dimensions") if isinstance(scoring_rubric.get("dimensions"), list) else []
+    dimensions = {
+        row.get("id"): row
+        for row in dimension_rows
+        if isinstance(row, Mapping) and isinstance(row.get("id"), str)
+    }
+    dimension_order = [row.get("id") for row in dimension_rows if isinstance(row, Mapping) and isinstance(row.get("id"), str)]
+    expected_configured = {dimension_id: _decimal_value(row.get("weight")) for dimension_id, row in dimensions.items()}
+    if not dimensions or any(weight is None for weight in expected_configured.values()):
+        return [Diagnostic(source, "$.rubric", "score_aggregate_rubric", "Scoring Rubric dimensions and weights must be complete")], None
+    if score.get("profile_ref") != rubric_header.get("profile_ref") or score.get("rubric_version") != rubric_header.get("version"):
+        diagnostics.append(Diagnostic(source, "$", "score_aggregate_identity", "Transparent Score Profile and Rubric version must match the selected Rubric"))
+
+    judgments_by_ref = {reference: document for document in judgment_documents if (reference := _artifact_document_ref(document)) is not None}
+    verifications_by_ref = {reference: document for document in verification_documents if (reference := _artifact_document_ref(document)) is not None}
+    judgment_refs = score.get("dimension_judgment_refs")
+    verification_refs = score.get("score_verification_refs")
+    if not isinstance(judgment_refs, list) or not isinstance(verification_refs, list) or not judgment_refs or len(judgment_refs) != len(verification_refs):
+        return [Diagnostic(source, "$", "score_aggregate_binding", "Transparent Score requires one Verification ref per Judgment ref")], None
+
+    accepted_by_judgment: dict[str, Mapping[str, Any]] = {}
+    for verification_ref in verification_refs:
+        verification = verifications_by_ref.get(verification_ref)
+        header = verification.get("artifact", {}) if isinstance(verification, Mapping) else {}
+        if not isinstance(header, Mapping) or header.get("type") != "score_verification" or header.get("status") != "active" or header.get("produced_by", {}).get("skill") != "competitor-score-verifier":
+            diagnostics.append(Diagnostic(source, "$.score_verification_refs", "score_aggregate_verification_ref", f"Verification ref is missing, inactive, or not independently produced: {verification_ref}"))
+            continue
+        if verification.get("result") != "ACCEPT" or verification.get("next_action") != "AGGREGATE" or verification.get("retry_exhausted") is not False or verification.get("issues") != []:
+            diagnostics.append(Diagnostic(source, "$.score_verification_refs", "score_aggregate_verification_accept", f"Verification must be ACCEPT/AGGREGATE without issues: {verification_ref}"))
+            continue
+        judgment_ref = verification.get("judgment_ref")
+        if judgment_ref not in judgment_refs or judgment_ref in accepted_by_judgment:
+            diagnostics.append(Diagnostic(source, "$.score_verification_refs", "score_aggregate_binding", f"Verification must bind one unique Judgment in this Score: {verification_ref}"))
+            continue
+        accepted_by_judgment[judgment_ref] = verification
+
+    scored_dimensions: dict[str, tuple[Decimal, Decimal]] = {}
+    for judgment_ref in judgment_refs:
+        judgment = judgments_by_ref.get(judgment_ref)
+        header = judgment.get("artifact", {}) if isinstance(judgment, Mapping) else {}
+        if not isinstance(header, Mapping) or header.get("type") != "dimension_judgment" or header.get("status") != "active" or header.get("produced_by", {}).get("skill") != "competitor-scoring":
+            diagnostics.append(Diagnostic(source, "$.dimension_judgment_refs", "score_aggregate_judgment_ref", f"Judgment ref is missing, inactive, or of the wrong producer: {judgment_ref}"))
+            continue
+        dimension_id = judgment.get("dimension_id")
+        dimension = dimensions.get(dimension_id)
+        if dimension is None:
+            diagnostics.append(Diagnostic(source, "$.dimension_judgment_refs", "score_aggregate_dimension", f"Judgment dimension is not in the selected Rubric: {dimension_id}"))
+            continue
+        if dimension_id in scored_dimensions:
+            diagnostics.append(Diagnostic(source, "$.dimension_judgment_refs", "score_aggregate_duplicate_dimension", f"Transparent Score contains duplicate scored dimension: {dimension_id}"))
+            continue
+        if judgment.get("competitor_id") != score.get("competitor_id") or judgment.get("rubric_ref") != score.get("rubric_ref") or judgment.get("rubric_version") != score.get("rubric_version"):
+            diagnostics.append(Diagnostic(source, "$.dimension_judgment_refs", "score_aggregate_identity", f"Judgment does not bind this competitor and Rubric: {judgment_ref}"))
+            continue
+        if judgment.get("judgment_status") != "SCORED" or not isinstance(judgment.get("score"), int) or isinstance(judgment.get("score"), bool):
+            diagnostics.append(Diagnostic(source, "$.dimension_judgment_refs", "score_aggregate_dimension", f"Only integer SCORED Judgments contribute covered weight: {judgment_ref}"))
+            continue
+        minimum_evidence = dimension.get("minimum_evidence_count")
+        if not isinstance(judgment.get("claim_refs"), list) or not isinstance(judgment.get("evidence_refs"), list) or len(judgment["evidence_refs"]) < minimum_evidence:
+            diagnostics.append(Diagnostic(source, "$.dimension_judgment_refs", "score_aggregate_evidence", f"Judgment lacks Rubric-required evidence: {judgment_ref}"))
+            continue
+        if judgment_ref not in accepted_by_judgment:
+            diagnostics.append(Diagnostic(source, "$.dimension_judgment_refs", "score_aggregate_binding", f"Judgment lacks one accepted independent Verification: {judgment_ref}"))
+            continue
+        weight = expected_configured[dimension_id]
+        scored_dimensions[dimension_id] = (Decimal(judgment["score"]), weight)
+
+    covered_weight = sum((weight for _, weight in scored_dimensions.values()), Decimal(0))
+    missing_dimensions = [dimension_id for dimension_id in dimension_order if dimension_id not in scored_dimensions]
+    minimum_coverage = _decimal_value(rubric_header.get("minimum_weight_coverage"))
+    eligible = minimum_coverage is not None and covered_weight >= minimum_coverage
+    expected_status = "COMPLETE" if covered_weight == Decimal(1) else ("PARTIAL" if eligible else "NOT_PERFORMED")
+    expected_effective = {
+        dimension_id: weight / covered_weight
+        for dimension_id, (_, weight) in scored_dimensions.items()
+    } if covered_weight else {}
+    expected_final = (
+        sum((value * weight for value, weight in scored_dimensions.values()), Decimal(0)) / covered_weight
+        if eligible and covered_weight
+        else None
+    )
+
+    configured = score.get("configured_weights") if isinstance(score.get("configured_weights"), Mapping) else {}
+    configured_decimal = {key: _decimal_value(value) for key, value in configured.items()}
+    if configured_decimal != expected_configured:
+        diagnostics.append(Diagnostic(source, "$.configured_weights", "score_aggregate_configured_weights", "Configured weights must exactly match the selected Rubric"))
+    if _decimal_value(score.get("coverage")) != covered_weight:
+        diagnostics.append(Diagnostic(source, "$.coverage", "score_aggregate_coverage", f"Coverage must equal recomputed covered weight {covered_weight}"))
+    if score.get("missing_dimension_ids") != missing_dimensions:
+        diagnostics.append(Diagnostic(source, "$.missing_dimension_ids", "score_aggregate_missing_dimensions", f"Missing dimensions must equal {missing_dimensions}"))
+    effective = score.get("effective_weights") if isinstance(score.get("effective_weights"), Mapping) else {}
+    effective_decimal = {key: _decimal_value(value) for key, value in effective.items()}
+    if effective_decimal != expected_effective:
+        diagnostics.append(Diagnostic(source, "$.effective_weights", "score_aggregate_effective_weights", "Effective weights must be the normalized weights of accepted covered dimensions"))
+    if score.get("status") != expected_status:
+        diagnostics.append(Diagnostic(source, "$.status", "score_aggregate_status", f"Score status must be {expected_status}"))
+    if _decimal_value(score.get("final_score")) != expected_final:
+        diagnostics.append(Diagnostic(source, "$.final_score", "score_aggregate_final_score", f"Final score must equal deterministic aggregate {expected_final}"))
+    if not eligible and (score.get("final_score") is not None or score.get("rank") is not None or score.get("tie_status") != "NOT_RANKED"):
+        diagnostics.append(Diagnostic(source, "$", "score_aggregate_threshold", "Coverage below the Rubric threshold cannot have a final score or rank"))
+    return diagnostics, expected_status
+
+
 def transparent_score_collection_diagnostics(
     collection: Mapping[str, Any],
     score_documents: Iterable[Mapping[str, Any]],
@@ -1929,6 +2052,7 @@ def transparent_score_collection_diagnostics(
     source: str,
     judgment_documents: Iterable[Mapping[str, Any]] = (),
     verification_documents: Iterable[Mapping[str, Any]] = (),
+    scoring_rubric: Mapping[str, Any] | None = None,
 ) -> list[Diagnostic]:
     """Validate the deterministic Runtime-owned Current Score collection envelope."""
 
@@ -1974,6 +2098,11 @@ def transparent_score_collection_diagnostics(
         for field in ("candidate_ranking_ref", "profile_ref", "rubric_ref", "rubric_version"):
             if collection.get(field) != score.get(field):
                 diagnostics.append(Diagnostic(source, f"$.score_refs[{index}]", "score_collection_identity", f"Score collection and member disagree on {field}"))
+        if isinstance(scoring_rubric, Mapping):
+            aggregate_diagnostics, aggregate_status = transparent_score_aggregation_diagnostics(score, judgments_by_ref.values(), verifications_by_ref.values(), scoring_rubric, source)
+            diagnostics.extend(aggregate_diagnostics)
+            if aggregate_status == "NOT_PERFORMED":
+                diagnostics.append(Diagnostic(source, f"$.score_refs[{index}]", "score_collection_ineligible_score", "Collection cannot include a Score below the Rubric coverage threshold"))
         judgment_refs = score.get("dimension_judgment_refs")
         verification_refs = score.get("score_verification_refs")
         if not isinstance(judgment_refs, list) or not isinstance(verification_refs, list) or not judgment_refs or len(judgment_refs) != len(verification_refs):
@@ -2020,19 +2149,11 @@ def transparent_score_collection_diagnostics(
     if set(competitor_ids) != ranked_competitors:
         diagnostics.append(Diagnostic(source, "$.score_refs", "score_collection_coverage", "Score collection must cover the Candidate Ranking scope exactly once"))
 
-    def numeric(value: Any) -> Decimal | None:
-        if value is None or isinstance(value, bool):
-            return None
-        try:
-            return Decimal(str(value))
-        except (InvalidOperation, ValueError):
-            return None
-
     eligible_rows: list[tuple[Mapping[str, Any], Decimal, Decimal, str]] = []
     unranked: list[Mapping[str, Any]] = []
     for score in resolved:
-        final_score = numeric(score.get("final_score"))
-        coverage = numeric(score.get("coverage"))
+        final_score = _decimal_value(score.get("final_score"))
+        coverage = _decimal_value(score.get("coverage"))
         reference = _artifact_document_ref(score)
         if final_score is None:
             unranked.append(score)
@@ -2246,7 +2367,7 @@ def publisher_contract_diagnostics(
                     "chart_bundle_collection_ref",
                 ],
             },
-            "required_inputs": {"competitor_ranking", "product_profile", "scoring_rubric", "transparent_score", "score_verification", "competitor_report"},
+            "required_inputs": {"competitor_ranking", "product_profile", "scoring_rubric", "dimension_judgment", "transparent_score", "score_verification", "competitor_report"},
             "writes": {
                 "artifacts/02-research/competitors/scoring/score-collection.json",
                 "artifacts/02-research/competitors/report-publication.json",
@@ -2260,6 +2381,7 @@ def publisher_contract_diagnostics(
             "required_reads": {
                 "artifacts/02-research/competitors/ranking.yaml",
                 "artifacts/02-research/competitors/report-publication.json",
+                "artifacts/02-research/competitors/scoring/judgments/",
                 "artifacts/02-research/competitors/scoring/scores/",
                 "artifacts/02-research/competitors/scoring/verifications/",
                 "profiles/",
@@ -2555,6 +2677,51 @@ def fixture_diagnostics(
                         case_diagnostics.extend(research_origin_diagnostics(idea_document, document, source))
             if "projection_references" in semantics and isinstance(document, dict):
                 case_diagnostics.extend(citation_closure_diagnostics(document, source, source_records))
+            if contract_version == "0.3.2" and "score_aggregate" in semantics and isinstance(document, dict):
+                judgment_fixtures = spec.get("judgment_fixtures")
+                verification_fixtures = spec.get("verification_fixtures")
+                if any(not isinstance(items, list) or not items or not all(isinstance(item, str) for item in items) for items in (judgment_fixtures, verification_fixtures)):
+                    case_diagnostics.append(Diagnostic(source, "$", "fixture_manifest", "score_aggregate semantics require Judgment and Verification fixture refs"))
+                else:
+                    related_documents: dict[str, list[dict[str, Any]]] = {"judgments": [], "verifications": []}
+                    for group_name, group_paths, artifact_type in (
+                        ("judgments", judgment_fixtures, "dimension_judgment"),
+                        ("verifications", verification_fixtures, "score_verification"),
+                    ):
+                        for related in group_paths:
+                            try:
+                                related_path = resolve_repo_path(related, root=bundle_root, allowed_root="fixtures", must_exist=True, reject_symlinks=True)
+                                related_document = load_document(related_path)
+                            except (OSError, ValueError, TypeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+                                case_diagnostics.append(Diagnostic(source, f"$.{group_name}", "fixture_load", str(exc)))
+                                continue
+                            if not isinstance(related_document, dict):
+                                case_diagnostics.append(Diagnostic(source, f"$.{group_name}", "fixture_load", "Related aggregate fixture must be an object"))
+                                continue
+                            case_diagnostics.extend(validate_instance(related_document, f"competitor.schema.json#/$defs/{artifact_type}", related, schemas, registry))
+                            related_documents[group_name].append(related_document)
+                    rubric_ref = document.get("rubric_ref")
+                    if not isinstance(rubric_ref, str):
+                        case_diagnostics.append(Diagnostic(source, "$.rubric_ref", "fixture_load", "Transparent Score must declare its bundle-local Rubric ref"))
+                    else:
+                        try:
+                            rubric_path = resolve_repo_path(rubric_ref, root=bundle_root, allowed_root="rubrics", must_exist=True, reject_symlinks=True)
+                            rubric_document = load_document(rubric_path)
+                        except (OSError, ValueError, TypeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+                            case_diagnostics.append(Diagnostic(source, "$.rubric_ref", "fixture_load", str(exc)))
+                        else:
+                            if isinstance(rubric_document, dict):
+                                case_diagnostics.extend(validate_instance(rubric_document, "competitor.schema.json#/$defs/scoring_rubric", rubric_ref, schemas, registry))
+                                aggregate_diagnostics, _ = transparent_score_aggregation_diagnostics(
+                                    document,
+                                    related_documents["judgments"],
+                                    related_documents["verifications"],
+                                    rubric_document,
+                                    source,
+                                )
+                                case_diagnostics.extend(aggregate_diagnostics)
+                            else:
+                                case_diagnostics.append(Diagnostic(source, "$.rubric_ref", "fixture_load", "Scoring Rubric must be an object"))
             if contract_version == "0.3.2" and "report_successor" in semantics and isinstance(document, dict):
                 base_report = None
                 base_fixture = spec.get("base_report_fixture")
@@ -2585,6 +2752,7 @@ def fixture_diagnostics(
                 else:
                     related_documents: dict[str, list[dict[str, Any]]] = {}
                     candidate_ranking: dict[str, Any] | None = None
+                    scoring_rubric: dict[str, Any] | None = None
                     for group_name, group_paths, artifact_type in related_groups:
                         related_documents[group_name] = []
                         for related in group_paths:
@@ -2609,7 +2777,22 @@ def fixture_diagnostics(
                             candidate_ranking = ranking_document
                         else:
                             case_diagnostics.append(Diagnostic(source, "$.candidate_ranking_fixture", "fixture_load", "Candidate Ranking fixture must be an object"))
-                    if candidate_ranking is not None:
+                    rubric_ref = document.get("rubric_ref")
+                    if not isinstance(rubric_ref, str):
+                        case_diagnostics.append(Diagnostic(source, "$.rubric_ref", "fixture_load", "Score collection must declare its bundle-local Rubric ref"))
+                    else:
+                        try:
+                            rubric_path = resolve_repo_path(rubric_ref, root=bundle_root, allowed_root="rubrics", must_exist=True, reject_symlinks=True)
+                            rubric_document = load_document(rubric_path)
+                        except (OSError, ValueError, TypeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+                            case_diagnostics.append(Diagnostic(source, "$.rubric_ref", "fixture_load", str(exc)))
+                        else:
+                            if isinstance(rubric_document, dict):
+                                scoring_rubric = rubric_document
+                                case_diagnostics.extend(validate_instance(rubric_document, "competitor.schema.json#/$defs/scoring_rubric", rubric_ref, schemas, registry))
+                            else:
+                                case_diagnostics.append(Diagnostic(source, "$.rubric_ref", "fixture_load", "Scoring Rubric must be an object"))
+                    if candidate_ranking is not None and scoring_rubric is not None:
                         case_diagnostics.extend(transparent_score_collection_diagnostics(
                             document,
                             related_documents["score_fixtures"],
@@ -2617,6 +2800,7 @@ def fixture_diagnostics(
                             source,
                             related_documents["judgment_fixtures"],
                             related_documents["verification_fixtures"],
+                            scoring_rubric,
                         ))
             if contract_version in {"0.3.1", "0.3.2"} and "chart_template" in semantics and isinstance(document, dict):
                 case_diagnostics.extend(chart_template_diagnostics(document, source, catalog))

@@ -82,7 +82,7 @@ registry:
     frozen_bundle_manifests:
       0.2.0:
         manifest: contracts/0.2.0-bundle.sha256.json
-        sha256: a629ae9bdac8dc0e0ce4f20145e10bc1453649b012a3e5df0cda2ad6a10f6eda
+        sha256: a92e22dc1d4edee82e470c599534fb7197d6f209b13500e8ef6b3b078fb8449d
     frozen_documents_sha256:
       PRD_v0.1.md: 4f30af7ad396f618bd3a06f82194cd8bb9a2d1fc378c04d3cd7986ee843cbf94
       PRD_v0.2.md: 159f8e7298fa118225d686cd1d4cf0d044fd11a879cebb73d82186ecd5fe9797

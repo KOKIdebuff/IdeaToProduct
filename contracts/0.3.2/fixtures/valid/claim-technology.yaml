@@ -1,0 +1,8 @@
+claim:
+  id: CL-TECH-001
+  statement: The example ecosystem signal is documented by its publisher.
+  category: technology
+  status: VALIDATED
+  confidence: HIGH
+  evidence_ids: [EV-TECH-001]
+  contradiction_ids: []

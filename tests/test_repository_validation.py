@@ -44,8 +44,8 @@ def test_repository_contracts_are_valid():
     assert frozen_count == 132
     assert current_count == 134
     assert staged_v031_count == 162
-    assert staged_v032_count == 209
-    assert expected == 751
+    assert staged_v032_count == 239
+    assert expected == 781
     assert checked == expected
     assert diagnostics == []
 

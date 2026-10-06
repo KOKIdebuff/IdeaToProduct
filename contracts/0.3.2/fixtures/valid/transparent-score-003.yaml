@@ -16,8 +16,8 @@ effective_weights: {workflow_fit: 0.25, developer_experience: 0.25, extensibilit
 coverage: 0.8
 status: PARTIAL
 missing_dimension_ids: [ecosystem_maturity]
-dimension_judgment_refs: [ART-JUDGMENT-003@1]
-score_verification_refs: [ART-SCORE-VERIFY-003@1]
+dimension_judgment_refs: [ART-JUDGMENT-003@1, ART-JUDGMENT-CMP003-DEVELOPER-EXPERIENCE@1, ART-JUDGMENT-CMP003-EXTENSIBILITY-INTEGRATION@1, ART-JUDGMENT-CMP003-AI-CAPABILITY@1]
+score_verification_refs: [ART-SCORE-VERIFY-003@1, ART-SCORE-VERIFY-CMP003-DEVELOPER-EXPERIENCE@1, ART-SCORE-VERIFY-CMP003-EXTENSIBILITY-INTEGRATION@1, ART-SCORE-VERIFY-CMP003-AI-CAPABILITY@1]
 final_score: 8
 rank: 2
 tie_status: TIED

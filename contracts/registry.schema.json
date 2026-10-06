@@ -81,7 +81,7 @@
                   "required": ["manifest", "sha256"],
                   "properties": {
                     "manifest": {"const": "contracts/0.2.0-bundle.sha256.json"},
-                    "sha256": {"const": "a629ae9bdac8dc0e0ce4f20145e10bc1453649b012a3e5df0cda2ad6a10f6eda"}
+                    "sha256": {"const": "a92e22dc1d4edee82e470c599534fb7197d6f209b13500e8ef6b3b078fb8449d"}
                   },
                   "additionalProperties": false
                 }

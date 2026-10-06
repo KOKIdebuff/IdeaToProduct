@@ -1,0 +1,18 @@
+artifact:
+  id: ART-JUDGMENT-CMP002-ECOSYSTEM-MATURITY
+  type: dimension_judgment
+  schema_version: 0.3.2
+  version: 1
+  produced_by: {skill: competitor-scoring, attempt: ATT-SCORE-002}
+  created_at: "2026-09-01T00:00:10Z"
+  supersedes: null
+  status: active
+competitor_id: cmp_002
+rubric_ref: rubrics/developer-tool-scoring.yaml
+rubric_version: 1.0.0
+dimension_id: ecosystem_maturity
+judgment_status: SCORED
+score: 10
+claim_refs: [CL-TECH-001]
+evidence_refs: [EV-TECH-001]
+rationale: Verified evidence supports the recorded ecosystem_maturity score.

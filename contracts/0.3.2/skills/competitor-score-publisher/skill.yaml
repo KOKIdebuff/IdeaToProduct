@@ -3,11 +3,12 @@ skill:
   version: 0.3.2
   type: generator
 inputs:
-  required: [competitor_ranking, product_profile, scoring_rubric, transparent_score, score_verification, competitor_report]
+  required: [competitor_ranking, product_profile, scoring_rubric, dimension_judgment, transparent_score, score_verification, competitor_report]
   optional: []
 reads:
   - artifacts/02-research/competitors/ranking.yaml
   - artifacts/02-research/competitors/report-publication.json
+  - artifacts/02-research/competitors/scoring/judgments/
   - artifacts/02-research/competitors/scoring/scores/
   - artifacts/02-research/competitors/scoring/verifications/
   - profiles/

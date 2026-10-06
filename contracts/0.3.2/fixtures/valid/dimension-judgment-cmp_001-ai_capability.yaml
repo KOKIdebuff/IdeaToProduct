@@ -1,0 +1,18 @@
+artifact:
+  id: ART-JUDGMENT-CMP001-AI-CAPABILITY
+  type: dimension_judgment
+  schema_version: 0.3.2
+  version: 1
+  produced_by: {skill: competitor-scoring, attempt: ATT-SCORE-001}
+  created_at: "2026-09-01T00:00:06Z"
+  supersedes: null
+  status: active
+competitor_id: cmp_001
+rubric_ref: rubrics/developer-tool-scoring.yaml
+rubric_version: 1.0.0
+dimension_id: ai_capability
+judgment_status: SCORED
+score: 9
+claim_refs: [CL-001]
+evidence_refs: [EV-001]
+rationale: Verified evidence supports the recorded ai_capability score.

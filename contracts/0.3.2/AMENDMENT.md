@@ -119,6 +119,13 @@ final score descending, verified coverage descending, and competitor ID
 ascending; equal score and coverage share a competition rank. The collection
 does not duplicate score values, coverage, rank, or tie state.
 
+Collection validation resolves every referenced Dimension Judgment and
+independent Score Verification, then recomputes the aggregate from the selected
+Rubric. A legal final score requires at least `0.80` covered weight; `1.0`
+coverage requires all five dimensions. Configured/effective weights, missing
+dimensions, COMPLETE/PARTIAL status, final score, rank, ties, and collection
+order are derived values and cannot be trusted from the Score envelope alone.
+
 ## Superseded Format Clauses
 
 For Bundle `0.3.2` only, this amendment supersedes the report/chart format
