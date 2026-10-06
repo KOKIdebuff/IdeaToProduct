@@ -48,7 +48,7 @@ from .runtime_state import (
     submit_external_proof as submit_external_proof_state,
     submit_gate_decision as submit_gate_decision_state,
 )
-from .storage import RecoveryReport, RunStorage, StoredArtifact, _safe_relative, declared_workspace_path_matches
+from .storage import RecoveryReport, RunStorage, StoredArtifact, _safe_relative, declared_workspace_path_matches, deserialize_snapshot
 from .invalidation import InvalidationResult, invalidate_downstream, invalidate_many, resume_invalidated
 from .transitions import transition_node
 
@@ -440,6 +440,25 @@ class RuntimeKernel:
         if not isinstance(current, Mapping) or current.get("artifact_ref") != projection_ref:
             raise RuntimeContractError("Current Manifest Projection reference is invalid", code="SCHEMA_INVALID", rule="report_projection_resume")
         projection = storage.read_artifact(projection_ref)
+        if snapshot.contract_version == "0.3.2":
+            header = projection.get("artifact") if isinstance(projection, Mapping) else None
+            producer = header.get("produced_by") if isinstance(header, Mapping) else None
+            attempt_id = producer.get("attempt") if isinstance(producer, Mapping) else None
+            attempt = next((item for item in snapshot.attempts if item.attempt_id == attempt_id), None)
+            if (
+                not isinstance(header, Mapping)
+                or f"{header.get('id')}@{header.get('version')}" != projection_ref
+                or header.get("type") != "report_projection"
+                or header.get("schema_version") != snapshot.contract_version
+                or header.get("status") != "active"
+                or attempt is None
+                or attempt.address != address
+                or not attempt.verified
+                or producer != {"skill": attempt.skill_ref.rsplit("@", 1)[0], "attempt": attempt_id}
+                or header.get("content_hash") != self._artifact_content_hash(projection)
+                or current.get("content_hash") != header.get("content_hash")
+            ):
+                raise RuntimeContractError("Current Report Projection identity, producer, or hash is invalid", code="SCHEMA_INVALID", rule="report_projection_integrity")
         self._validate_schema_ref(
             projection,
             "schemas/competitor.schema.json#/$defs/report_projection",
@@ -449,9 +468,28 @@ class RuntimeKernel:
         input_state_version = projection.get("input_state_version")
         if not isinstance(input_state_version, int) or input_state_version > snapshot.state_version:
             raise RuntimeContractError("Report Projection state version is invalid", code="SCHEMA_INVALID", rule="report_projection_resume")
+        if snapshot.contract_version == "0.3.2":
+            committed = deserialize_snapshot(storage._read_json(f"runtime/snapshots/{input_state_version}.json"))
+            prior = deserialize_snapshot(storage._read_json(f"runtime/snapshots/{input_state_version - 1}.json"))
+            committed_state = committed.node_states.get(address)
+            prior_state = prior.node_states.get(address)
+            if (
+                committed.run_id != snapshot.run_id
+                or committed.state_version != input_state_version
+                or committed_state is None
+                or committed_state.status is not NodeStatus.VERIFIED
+                or not committed_state.artifact_refs
+                or committed_state.artifact_refs[-1] != projection_ref
+                or prior_state is not None and projection_ref in prior_state.artifact_refs
+            ):
+                raise RuntimeContractError("Report Projection is not bound to its commit state version", code="SCHEMA_INVALID", rule="report_projection_integrity")
         if tuple(projection.get("input_artifact_refs", ())) != self._report_projection_input_refs(snapshot):
             raise RuntimeContractError("Report Projection input Artifacts do not match the current state", code="SCHEMA_INVALID", rule="report_projection_resume")
         _evidence, _claims, fact_bindings = storage.read_research_provenance(input_state_version)
+        if snapshot.contract_version == "0.3.2":
+            effective_bindings = storage.read_research_provenance(snapshot.state_version)[2]
+            if fact_bindings != effective_bindings:
+                raise RuntimeContractError("Report Projection is not bound to effective Fact Bindings", code="SCHEMA_INVALID", rule="report_projection_integrity")
         projected_facts = [
             fact
             for group in projection.get("fact_groups", ())
@@ -692,6 +730,9 @@ class RuntimeKernel:
 
     def recover_run(self, run_id: str) -> RecoveryReport:
         storage = self._storage_for(run_id)
+        # Check the committed snapshot and its effective Artifacts before Recovery
+        # repairs the cached state file, so tamper never causes a write.
+        self.load_run(run_id)
         report = storage.recover()
         snapshot = storage.load_snapshot()
         self._validate_wire_state(snapshot, self.compiled_bundle_for(snapshot))

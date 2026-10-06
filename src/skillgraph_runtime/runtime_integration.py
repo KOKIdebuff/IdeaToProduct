@@ -48,6 +48,7 @@ _INTEGRATED_TYPES = {
     "transparent_score": "schemas/competitor.schema.json#/$defs/transparent_score",
 }
 _TYPE_PREFIX = {
+    "chart_bundle_collection": "CHART-BUNDLE-COLLECTION",
     "report_publication_projection": "REPORT-PUBLICATION-PROJECTION",
     "competitor_report": "COMPETITOR-REPORT",
     "transparent_score": "TRANSPARENT-SCORE",
@@ -137,7 +138,10 @@ def _header(kernel: Any, snapshot: RunSnapshot, attempt_id: str, artifact_type: 
         identifier, raw_version = supersedes.rsplit("@", 1)
         version = int(raw_version) + 1
     else:
-        token = hashlib.sha256(f"{snapshot.run_id}|{artifact_type}".encode()).hexdigest()[:20].upper()
+        seed = f"{snapshot.run_id}|{artifact_type}"
+        if artifact_type == "chart_bundle_collection":
+            seed += f"|{attempt_id}"
+        token = hashlib.sha256(seed.encode()).hexdigest()[:20].upper()
         identifier = f"ART-{_TYPE_PREFIX[artifact_type]}-{token}"
         version = 1
     return {
@@ -150,6 +154,49 @@ def _header(kernel: Any, snapshot: RunSnapshot, attempt_id: str, artifact_type: 
         "supersedes": supersedes,
         "status": "active",
     }
+
+
+def _runtime_chart_document(kernel: Any, snapshot: RunSnapshot, attempt_id: str, proposal: ChartRenderingProposal) -> dict[str, Any]:
+    """Replace proposal identity fields with headers owned by the active Skill Attempt."""
+
+    document = proposal.to_wire_document()
+    collection_header = _header(kernel, snapshot, attempt_id, "chart_bundle_collection")
+    bundles = document.get("bundles")
+    if not isinstance(bundles, list) or not bundles:
+        raise RuntimeContractError("Chart proposal has no bundles", code="SCHEMA_INVALID", rule="chart_runtime_header")
+    seen_ids: set[str] = set()
+    for bundle in bundles:
+        chart = bundle.get("chart") if isinstance(bundle, Mapping) else None
+        chart_id = chart.get("id") if isinstance(chart, Mapping) else None
+        if not isinstance(chart_id, str) or chart_id in seen_ids:
+            raise RuntimeContractError("Chart instance identity is invalid", code="SCHEMA_INVALID", rule="chart_runtime_header")
+        seen_ids.add(chart_id)
+        token = hashlib.sha256(f"{snapshot.run_id}|{attempt_id}|chart_bundle|{chart_id}".encode()).hexdigest()[:20].upper()
+        identifier = f"ART-CHART-BUNDLE-{token}"
+        bundle["artifact"] = {
+            "id": identifier,
+            "type": "chart_bundle",
+            "schema_version": snapshot.contract_version,
+            "version": 1,
+            "produced_by": dict(collection_header["produced_by"]),
+            "created_at": collection_header["created_at"],
+            "supersedes": None,
+            "status": "active",
+        }
+        bundle["artifact"]["content_hash"] = kernel._artifact_content_hash(bundle)
+    document["artifact"] = collection_header
+    return _with_content_hash(document)
+
+
+def _chart_request_body(proposal: ChartRenderingProposal) -> dict[str, Any]:
+    body = proposal.to_wire_document()
+    body.pop("artifact", None)
+    bundles = body.get("bundles")
+    if not isinstance(bundles, list) or not bundles or any(not isinstance(bundle, dict) for bundle in bundles):
+        raise RuntimeContractError("Chart proposal has no valid bundles", code="SCHEMA_INVALID", rule="chart_runtime_header")
+    for bundle in bundles:
+        bundle.pop("artifact", None)
+    return body
 
 
 def _active_current_ref(kernel: Any, snapshot: RunSnapshot, artifact_type: str) -> tuple[str, Mapping[str, Any]]:
@@ -197,6 +244,52 @@ def _validate_chart_assets(kernel: Any, snapshot: RunSnapshot, collection: Mappi
         png_ref = bundle.get("png_ref")
         if png_ref is not None and not assets[png_ref].startswith(b"\x89PNG\r\n\x1a\n"):
             raise RuntimeContractError("Chart PNG compatibility asset is invalid", code="SCHEMA_INVALID", rule="chart_png")
+
+
+def _validate_chart_headers(kernel: Any, snapshot: RunSnapshot, collection: Mapping[str, Any]) -> None:
+    header = collection.get("artifact")
+    producer = header.get("produced_by") if isinstance(header, Mapping) else None
+    attempt_id = producer.get("attempt") if isinstance(producer, Mapping) else None
+    attempt = next((item for item in snapshot.attempts if item.attempt_id == attempt_id), None)
+    token = hashlib.sha256(f"{snapshot.run_id}|chart_bundle_collection|{attempt_id}".encode()).hexdigest()[:20].upper() if isinstance(attempt_id, str) else None
+    version = header.get("version") if isinstance(header, Mapping) else None
+    supersedes = header.get("supersedes") if isinstance(header, Mapping) else None
+    if (
+        attempt is None
+        or attempt.address != NodeAddress(("competitor",), "chart_rendering")
+        or not attempt.verified
+        or producer != {"skill": attempt.skill_ref.rsplit("@", 1)[0], "attempt": attempt_id}
+        or header.get("created_at") != attempt.started_at
+        or header.get("schema_version") != snapshot.contract_version
+        or header.get("status") != "active"
+        or type(version) is not int
+        or version < 1
+        or (version == 1 and (supersedes is not None or header.get("id") != f"ART-CHART-BUNDLE-COLLECTION-{token}"))
+        or (version > 1 and supersedes != f"{header.get('id')}@{version - 1}")
+    ):
+        raise RuntimeContractError("Current Chart producer is invalid", code="SECURITY_POLICY_VIOLATION", rule="chart_runtime_producer")
+    seen_ids: set[str] = set()
+    for bundle in collection.get("bundles", ()):
+        chart = bundle.get("chart") if isinstance(bundle, Mapping) else None
+        chart_id = chart.get("id") if isinstance(chart, Mapping) else None
+        nested = bundle.get("artifact") if isinstance(bundle, Mapping) else None
+        if not isinstance(chart_id, str) or not isinstance(nested, Mapping):
+            raise RuntimeContractError("Current Chart bundle is malformed", code="SCHEMA_INVALID", rule="chart_runtime_producer")
+        token = hashlib.sha256(f"{snapshot.run_id}|{attempt_id}|chart_bundle|{chart_id}".encode()).hexdigest()[:20].upper()
+        if (
+            chart_id in seen_ids
+            or nested.get("id") != f"ART-CHART-BUNDLE-{token}"
+            or nested.get("type") != "chart_bundle"
+            or nested.get("schema_version") != snapshot.contract_version
+            or nested.get("version") != 1
+            or nested.get("produced_by") != producer
+            or nested.get("created_at") != attempt.started_at
+            or nested.get("supersedes") is not None
+            or nested.get("status") != "active"
+            or nested.get("content_hash") != kernel._artifact_content_hash(bundle)
+        ):
+            raise RuntimeContractError("Current Chart bundle producer or hash is invalid", code="SECURITY_POLICY_VIOLATION", rule="chart_runtime_producer")
+        seen_ids.add(chart_id)
 
 
 def _profile(kernel: Any, snapshot: RunSnapshot) -> Mapping[str, Any]:
@@ -374,14 +467,11 @@ class StagedP004RuntimeIntegration:
         expected_inputs = tuple(dict.fromkeys((projection_ref, *tuple(projection.get("input_artifact_refs", ())))))
         if proposal.input_artifact_refs != expected_inputs:
             raise RuntimeContractError("Chart proposal inputs are stale", code="STATE_VERSION_CONFLICT", rule="chart_runtime_inputs")
-        document = _with_content_hash(proposal.to_wire_document())
         assets = dict(proposal.assets)
-        _validate_chart_assets(self.kernel, snapshot, document, assets)
-        artifact_ref = _artifact_ref(document, "chart_bundle_collection")
         operation = "commit_chart_rendering"
         request_hash = _request_hash(
             operation,
-            {"attempt_id": attempt_id, "document": document, "assets": {key: "sha256:" + hashlib.sha256(value).hexdigest() for key, value in sorted(assets.items())}, "inputs": expected_inputs},
+            {"attempt_id": attempt_id, "body": _chart_request_body(proposal), "assets": {key: "sha256:" + hashlib.sha256(value).hexdigest() for key, value in sorted(assets.items())}, "inputs": expected_inputs},
         )
         replay = _replay_committed(
             self.kernel,
@@ -392,7 +482,10 @@ class StagedP004RuntimeIntegration:
             request_hash=request_hash,
         )
         if replay is not None:
-            return {"state": snapshot.to_wire_state(), "artifact_ref": artifact_ref, "replayed": True}
+            return {"state": snapshot.to_wire_state(), "artifact_ref": _artifact_ref(replay, "chart_bundle_collection"), "replayed": True}
+        document = _runtime_chart_document(self.kernel, snapshot, attempt_id, proposal)
+        _validate_chart_assets(self.kernel, snapshot, document, assets)
+        artifact_ref = _artifact_ref(document, "chart_bundle_collection")
         identity = _mutation_identity(
             operation,
             idempotency_key,
@@ -483,11 +576,6 @@ class StagedP004RuntimeIntegration:
             inventory_ref=str(collection_entry.get("asset_inventory_ref", "")),
             inventory_hash=str(collection_entry.get("asset_inventory_hash", "")),
         )
-        svg_refs = {bundle["svg_ref"] for bundle in collection.get("bundles", ()) if isinstance(bundle, Mapping)}
-        try:
-            svgs = {reference: chart_assets[reference].decode("utf-8") for reference in svg_refs}
-        except (KeyError, UnicodeDecodeError) as exc:
-            raise RuntimeContractError("Current Chart SVG assets are unavailable", code="ARTIFACT_MISSING", rule="report_asset_integration") from exc
         evidence, claims, bindings = storage.read_research_provenance(snapshot.state_version)
         del evidence, claims
         all_sources = self.kernel.source_index_for(run_id)
@@ -497,18 +585,17 @@ class StagedP004RuntimeIntegration:
             source = all_sources.get(source_id)
             if not isinstance(source, Mapping):
                 raise RuntimeContractError("Publication Source is not current", code="ARTIFACT_MISSING", rule="report_citation")
-            publisher = source.get("publisher") or source.get("author") or source.get("title")
-            excerpt = source.get("excerpt_or_summary")
-            if not isinstance(publisher, str) or not publisher.strip() or not isinstance(excerpt, str) or not excerpt.strip():
+            metadata = source.get("citation_metadata")
+            if (
+                not isinstance(metadata, Mapping)
+                or not isinstance(metadata.get("publisher_short_name"), str)
+                or not metadata["publisher_short_name"].strip()
+                or not isinstance(metadata.get("excerpt"), str)
+                or not metadata["excerpt"].strip()
+                or "local_favicon_ref" not in metadata
+            ):
                 raise RuntimeContractError("Publication Source lacks verified citation metadata", code="SCHEMA_INVALID", rule="report_citation")
-            source_records[source_id] = {
-                **deep_thaw(source),
-                "citation_metadata": {
-                    "publisher_short_name": publisher.strip(),
-                    "excerpt": excerpt.strip(),
-                    "local_favicon_ref": None,
-                },
-            }
+            source_records[source_id] = deep_thaw(source)
         fact_values = _fact_values(storage, projection)
         # Chart observation bindings live in Publication Projection rather than
         # the research-provenance sidecar.
@@ -574,7 +661,7 @@ class StagedP004RuntimeIntegration:
             source_records=source_records,
             fact_values=fact_values,
             template_path=template_path,
-            fixture_svg_assets=svgs,
+            fixture_svg_assets=None,
         )
         run_root = storage.run_root.resolve()
         with tempfile.TemporaryDirectory(prefix="ideatoproduct-report-stage-") as temporary:
@@ -585,7 +672,7 @@ class StagedP004RuntimeIntegration:
                 pass
             else:  # pragma: no cover - defensive platform guard.
                 raise RuntimeContractError("Report staging root overlaps the Run root", code="SECURITY_POLICY_VIOLATION", rule="report_staging")
-            pointer = ImmutableReportBundlePublisher(staging_root, fixture_assets_allowed=True).publish(request)
+            pointer = ImmutableReportBundlePublisher(staging_root)._publish_from_inventory(request, storage, collection_entry)
             staged_run = RunStorage(staging_root, run_id)
             root_ref, inventory_ref = pointer.get("root_ref"), pointer.get("inventory_ref")
             if not isinstance(root_ref, str) or not isinstance(inventory_ref, str):
@@ -737,7 +824,13 @@ def validate_staged_runtime_resume(kernel: Any, snapshot: RunSnapshot) -> None:
             raise RuntimeContractError("Current staged Artifact entry is malformed", code="SCHEMA_INVALID", rule="staged_resume")
         reference = entry["artifact_ref"]
         document = storage.read_artifact(reference)
-        if _artifact_ref(document, artifact_type) != reference or kernel._artifact_content_hash(document) != entry.get("content_hash"):
+        header = document.get("artifact") if isinstance(document, Mapping) else None
+        if (
+            _artifact_ref(document, artifact_type) != reference
+            or not isinstance(header, Mapping)
+            or kernel._artifact_content_hash(document) != entry.get("content_hash")
+            or header.get("content_hash") != entry.get("content_hash")
+        ):
             raise RuntimeContractError("Current staged Artifact identity or hash is invalid", code="SCHEMA_INVALID", rule="staged_resume")
         if reference not in effective_refs:
             raise RuntimeContractError("Current staged Artifact is not owned by a verified node", code="SCHEMA_INVALID", rule="staged_resume")
@@ -763,6 +856,7 @@ def validate_staged_runtime_resume(kernel: Any, snapshot: RunSnapshot) -> None:
         documents[artifact_type] = document
     chart = documents.get("chart_bundle_collection")
     if chart is not None:
+        _validate_chart_headers(kernel, snapshot, chart)
         _validate_chart_assets(kernel, snapshot, chart, assets_by_type.get("chart_bundle_collection", {}))
         projection_entry = current.get("report_projection", {})
         if not isinstance(projection_entry, Mapping) or chart.get("bundles") is None:

@@ -17,13 +17,13 @@ from skillgraph_runtime import (
 from skillgraph_runtime import graph as graph_module
 from skillgraph_runtime import operations as operations_module
 from skillgraph_runtime.chart_rendering import ChartRenderingProposal
-from skillgraph_runtime.domain import NodeAddress, NodeStatus
+from skillgraph_runtime.domain import CreateRunCommand, NodeAddress, NodeStatus, deep_thaw
 from skillgraph_runtime.runtime_integration import StagedP004RuntimeIntegration
 from skillgraph_runtime.scoring import IndependentScoreVerifier, load_profile_rubric, validate_dimension_judgment
 from skillgraph_runtime.storage import RunStorage
 from skillgraph_runtime._validation import validate_contracts as validator_module
 
-from test_competitor_research import FixedClock, FixedIds, _complete_p04_through_analysis
+from test_competitor_research import FixedClock, FixedIds, _complete_p04_through_analysis, fixture_catalog, services
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -146,8 +146,16 @@ def _chart_request(kernel, snapshot, attempt_id: str, chart_type: str, index: in
 def _through_fact_provenance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     repository_root = _temporary_v032_repository(tmp_path, monkeypatch)
     runtime_root = tmp_path / "runtime"
+    catalog = fixture_catalog()
+    for source in catalog["discovery"]["sources"]:
+        source["citation_metadata"] = {
+            "publisher_short_name": "Example Publisher",
+            "excerpt": "Public product information.",
+            "local_favicon_ref": None,
+        }
     kernel, operations, run_id = _complete_p04_through_analysis(
         runtime_root,
+        catalog=catalog,
         repository_root=repository_root,
         contract_version="0.3.2",
     )
@@ -424,3 +432,145 @@ def test_runtime_operations_integration_is_embedding_only():
         "commit_p0_04_transparent_score",
     }.intersection(operations_module._MUTATING | operations_module._UNIMPLEMENTED)
     assert StagedP004RuntimeIntegration.__name__ == "StagedP004RuntimeIntegration"
+
+
+@pytest.mark.parametrize("tamper", ("producer", "header_hash", "manifest_hash", "schema"))
+def test_current_projection_tamper_fails_load_and_recovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tamper: str):
+    _repo, runtime_root, kernel, _operations, run_id = _through_fact_provenance(tmp_path, monkeypatch)
+    storage = RunStorage(runtime_root, run_id)
+    manifest = storage._manifest()
+    entry = manifest["current_artifacts"]["report_projection"]
+    reference = entry["artifact_ref"]
+    if tamper == "manifest_hash":
+        entry["content_hash"] = "sha256:" + "0" * 64
+        storage._path("runtime/current-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    else:
+        artifact_path = storage._path(f"artifacts/by-ref/{reference}.json")
+        projection = json.loads(artifact_path.read_text(encoding="utf-8"))
+        if tamper == "producer":
+            projection["artifact"]["produced_by"]["attempt"] = "ATT-FORGED-001"
+        elif tamper == "header_hash":
+            projection["artifact"]["content_hash"] = "sha256:" + "0" * 64
+        else:
+            projection["verification_status"] = "FORGED"
+        artifact_path.write_text(json.dumps(projection), encoding="utf-8")
+    for read in (kernel.load_run, kernel.recover_run):
+        with pytest.raises(RuntimeContractError):
+            read(run_id)
+
+
+def test_tampered_projection_recovery_does_not_repair_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _repo, runtime_root, kernel, _operations, run_id = _through_fact_provenance(tmp_path, monkeypatch)
+    storage = RunStorage(runtime_root, run_id)
+    reference = storage._manifest()["current_artifacts"]["report_projection"]["artifact_ref"]
+    artifact_path = storage._path(f"artifacts/by-ref/{reference}.json")
+    projection = json.loads(artifact_path.read_text(encoding="utf-8"))
+    projection["artifact"]["content_hash"] = "sha256:" + "0" * 64
+    artifact_path.write_text(json.dumps(projection), encoding="utf-8")
+    state_path = storage._path("runtime/state.json")
+    state_path.write_text('{"cached":"stale"}', encoding="utf-8")
+    with pytest.raises(RuntimeContractError):
+        kernel.recover_run(run_id)
+    assert state_path.read_text(encoding="utf-8") == '{"cached":"stale"}'
+
+
+def test_projection_input_version_must_be_its_commit_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _repo, runtime_root, kernel, _operations, run_id = _through_fact_provenance(tmp_path, monkeypatch)
+    storage = RunStorage(runtime_root, run_id)
+    kernel.schedule_persisted(run_id, requested_nodes=(NodeAddress(("competitor",), "chart_rendering"),))
+    manifest = storage._manifest()
+    entry = manifest["current_artifacts"]["report_projection"]
+    path = storage._path(f"artifacts/by-ref/{entry['artifact_ref']}.json")
+    projection = json.loads(path.read_text(encoding="utf-8"))
+    projection["input_state_version"] = manifest["state_version"]
+    projection["artifact"]["content_hash"] = kernel._artifact_content_hash(projection)
+    entry["content_hash"] = projection["artifact"]["content_hash"]
+    path.write_text(json.dumps(projection), encoding="utf-8")
+    storage._path("runtime/current-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(RuntimeContractError) as stale:
+        kernel.load_run(run_id)
+    assert stale.value.rule == "report_projection_integrity"
+
+
+def test_existing_v030_run_recovers_without_staged_projection(tmp_path: Path):
+    kernel, _operations = services(tmp_path)
+    created = kernel.create_persisted_run(CreateRunCommand("A compatible product idea", "developer_tool"))
+    assert created.contract_version == "0.3.0"
+    resumed, _operations = services(tmp_path)
+    assert resumed.load_run(created.run_id).state_version == created.state_version
+    assert resumed.recover_run(created.run_id).uncommitted_event_offsets == ()
+
+
+def test_chart_nested_header_is_runtime_owned(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _repo, runtime_root, kernel, operations, run_id = _through_fact_provenance(tmp_path, monkeypatch)
+    storage = RunStorage(runtime_root, run_id)
+    projection = storage.read_artifact(storage._manifest()["current_artifacts"]["report_projection"]["artifact_ref"])
+    fact = projection["fact_groups"][0]["facts"][0]
+    plan = kernel.schedule_persisted(run_id, requested_nodes=(NodeAddress(("competitor",), "chart_rendering"),))
+    attempt_id = plan.attempts_to_start[0].attempt_id
+    snapshot = kernel.load_run(run_id)
+    proposal = ChartRenderingCore(NativeChartRenderer.from_bundle_root(kernel.repository_root / "contracts" / "0.3.2")).build_collection(
+        report_projection=projection,
+        collection_artifact=_header(kernel, snapshot, attempt_id, "ART-CHART-COLLECTION-FORGED", "chart_bundle_collection", "competitor-chart-rendering"),
+        charts=[_chart_request(kernel, snapshot, attempt_id, "feature_matrix", 1, fact)],
+    )
+    forged = proposal.to_wire_document()
+    forged["bundles"][0]["artifact"]["produced_by"] = {"skill": "competitor-chart-rendering", "attempt": "ATT-FORGED-001"}
+    forged["bundles"][0]["artifact"]["created_at"] = "2020-01-01T00:00:00Z"
+    forged_proposal = ChartRenderingProposal(forged, dict(proposal.assets), proposal.input_artifact_refs)
+    result = operations.commit_p0_04_chart_rendering(run_id, attempt_id, forged_proposal, idempotency_key="chart-forged-header")
+    stored = storage.read_artifact(result["artifact_ref"])
+    assert stored["artifact"]["id"] != "ART-CHART-COLLECTION-FORGED"
+    assert stored["bundles"][0]["artifact"]["produced_by"] == {"skill": "competitor-chart-rendering", "attempt": attempt_id}
+    assert stored["bundles"][0]["artifact"]["created_at"] == plan.attempts_to_start[0].started_at
+    assert kernel.recover_run(run_id).uncommitted_event_offsets == ()
+
+
+def test_persisted_chart_nested_producer_tamper_fails_recovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _repo, runtime_root, kernel, _operations, run_id, *_rest = _through_report(tmp_path, monkeypatch)
+    storage = RunStorage(runtime_root, run_id)
+    manifest = storage._manifest()
+    entry = manifest["current_artifacts"]["chart_bundle_collection"]
+    path = storage._path(f"artifacts/by-ref/{entry['artifact_ref']}.json")
+    collection = json.loads(path.read_text(encoding="utf-8"))
+    collection["bundles"][0]["artifact"]["produced_by"]["attempt"] = "ATT-FORGED-001"
+    collection["bundles"][0]["artifact"]["content_hash"] = kernel._artifact_content_hash(collection["bundles"][0])
+    collection["artifact"]["content_hash"] = kernel._artifact_content_hash(collection)
+    entry["content_hash"] = collection["artifact"]["content_hash"]
+    path.write_text(json.dumps(collection), encoding="utf-8")
+    storage._path("runtime/current-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    for read in (kernel.load_run, kernel.recover_run):
+        with pytest.raises(RuntimeContractError) as tampered:
+            read(run_id)
+        assert tampered.value.rule == "chart_runtime_producer"
+
+
+def test_report_requires_explicit_citation_metadata_without_manifest_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _repo, runtime_root, kernel, operations, run_id = _through_fact_provenance(tmp_path, monkeypatch)
+    storage = RunStorage(runtime_root, run_id)
+    projection = storage.read_artifact(storage._manifest()["current_artifacts"]["report_projection"]["artifact_ref"])
+    fact = projection["fact_groups"][0]["facts"][0]
+    chart_plan = kernel.schedule_persisted(run_id, requested_nodes=(NodeAddress(("competitor",), "chart_rendering"),))
+    attempt_id = chart_plan.attempts_to_start[0].attempt_id
+    snapshot = kernel.load_run(run_id)
+    proposal = ChartRenderingCore(NativeChartRenderer.from_bundle_root(kernel.repository_root / "contracts" / "0.3.2")).build_collection(
+        report_projection=projection,
+        collection_artifact=_header(kernel, snapshot, attempt_id, "ART-CHART-COLLECTION-CITATION", "chart_bundle_collection", "competitor-chart-rendering"),
+        charts=[_chart_request(kernel, snapshot, attempt_id, "feature_matrix", 1, fact)],
+    )
+    operations.commit_p0_04_chart_rendering(run_id, attempt_id, proposal, idempotency_key="chart-citation")
+    publication_plan = kernel.schedule_persisted(run_id, requested_nodes=(NodeAddress(("competitor",), "report_publication_projection"),))
+    operations.commit_p0_04_publication_projection(run_id, publication_plan.attempts_to_start[0].attempt_id, idempotency_key="publication-citation")
+    report_plan = kernel.schedule_persisted(run_id, requested_nodes=(NodeAddress(("competitor",), "report_builder"),))
+    before = deepcopy(storage._manifest())
+    original = kernel.source_index_for
+    def without_metadata(current_run_id):
+        sources = deep_thaw(original(current_run_id))
+        for source in sources.values():
+            source.pop("citation_metadata", None)
+        return sources
+    monkeypatch.setattr(kernel, "source_index_for", without_metadata)
+    with pytest.raises(RuntimeContractError) as missing:
+        operations.commit_p0_04_report(run_id, report_plan.attempts_to_start[0].attempt_id, idempotency_key="report-citation", expected_base_report_ref=None)
+    assert missing.value.rule == "report_citation"
+    assert storage._manifest() == before

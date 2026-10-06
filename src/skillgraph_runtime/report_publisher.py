@@ -871,7 +871,9 @@ class ImmutableReportBundlePublisher:
         return template
 
     @staticmethod
-    def _request_hash(request: ReportPublicationRequest, template: str) -> tuple[str, str]:
+    def _request_hash(request: ReportPublicationRequest, template: str, svg_assets: Mapping[str, str] | None = None) -> tuple[str, str]:
+        if svg_assets is None:
+            svg_assets = request.fixture_svg_assets or {}
         key_hash = _key_hash(request.idempotency_key)
         request_hash = _canonical_hash(
             {
@@ -884,7 +886,7 @@ class ImmutableReportBundlePublisher:
                 "profile": request.profile,
                 "source_records": request.source_records,
                 "fact_values": request.fact_values,
-                "fixture_svg_assets": request.fixture_svg_assets,
+                "svg_assets": svg_assets,
                 "template_hash": "sha256:" + hashlib.sha256(template.encode()).hexdigest(),
             }
         )
@@ -940,7 +942,7 @@ class ImmutableReportBundlePublisher:
             )
         return selected
 
-    def _chart_assets(self, request: ReportPublicationRequest) -> tuple[dict[str, str], str]:
+    def _chart_assets(self, request: ReportPublicationRequest, svg_assets: Mapping[str, str]) -> tuple[dict[str, str], str]:
         collection = request.chart_bundle_collection
         bundles = collection.get("bundles") if isinstance(collection, Mapping) else None
         if not isinstance(bundles, list) or not bundles:
@@ -994,20 +996,8 @@ class ImmutableReportBundlePublisher:
                 details={"missing_chart_types": tuple(missing)},
             )
 
-        if request.fixture_svg_assets is None:
-            raise RuntimeContractError(
-                "Runtime Chart asset resolution is not integrated",
-                code="DEPENDENCY_NOT_READY",
-                rule="report_asset_integration",
-            )
-        if not self.fixture_assets_allowed:
-            raise RuntimeContractError(
-                "In-memory SVG assets are only available to explicit fixture Publishers",
-                code="SECURITY_POLICY_VIOLATION",
-                rule="report_asset_fixture",
-            )
         referenced_svg_refs = {str(observed[chart_type].get("svg_ref")) for chart_type in required_types}
-        if set(request.fixture_svg_assets) != referenced_svg_refs:
+        if set(svg_assets) != referenced_svg_refs:
             raise RuntimeContractError(
                 "Fixture SVG assets must exactly match required Chart references",
                 code="SCHEMA_INVALID",
@@ -1024,7 +1014,7 @@ class ImmutableReportBundlePublisher:
                     "Chart Bundle canonical SVG is unavailable", code="DEPENDENCY_NOT_READY", rule="report_svg"
                 )
             _safe_relative(svg_ref)
-            svg = request.fixture_svg_assets.get(svg_ref)
+            svg = svg_assets.get(svg_ref)
             if not isinstance(svg, str):
                 raise RuntimeContractError(
                     "Chart Bundle canonical SVG is unavailable", code="DEPENDENCY_NOT_READY", rule="report_svg"
@@ -1266,9 +1256,11 @@ class ImmutableReportBundlePublisher:
     def replay(self, request: ReportPublicationRequest) -> Mapping[str, Any] | None:
         """Return the current result of a prior byte-equivalent publication."""
 
+        if not self.fixture_assets_allowed or request.fixture_svg_assets is None:
+            raise RuntimeContractError("Fixture replay requires an explicit fixture Publisher", code="SECURITY_POLICY_VIOLATION", rule="report_asset_fixture")
         self._validate_inputs(request)
         template = self._template(request.template_path)
-        key_hash, request_hash = self._request_hash(request, template)
+        key_hash, request_hash = self._request_hash(request, template, request.fixture_svg_assets)
         store = _IsolatedReportStore(self.storage_root, request.run_id)
         existing = store.publication_record(key_hash)
         if existing is None:
@@ -1295,10 +1287,37 @@ class ImmutableReportBundlePublisher:
         return pointer
 
     def publish(self, request: ReportPublicationRequest) -> Mapping[str, Any]:
+        if request.fixture_svg_assets is None:
+            raise RuntimeContractError("Runtime Chart asset resolution is not integrated", code="DEPENDENCY_NOT_READY", rule="report_asset_integration")
+        if not self.fixture_assets_allowed:
+            raise RuntimeContractError("Fixture assets require an explicit fixture Publisher", code="SECURITY_POLICY_VIOLATION", rule="report_asset_fixture")
+        return self._publish(request, request.fixture_svg_assets)
+
+    def _publish_from_inventory(self, request: ReportPublicationRequest, chart_storage: Any, collection_entry: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Resolve Runtime SVGs from a hash-checked current Chart inventory."""
+
+        if request.fixture_svg_assets is not None or self.fixture_assets_allowed:
+            raise RuntimeContractError("Runtime publishing cannot use fixture assets", code="SECURITY_POLICY_VIOLATION", rule="report_asset_fixture")
+        collection_ref = _artifact_ref(request.chart_bundle_collection, expected_type="chart_bundle_collection", rule="report_chart_coverage")
+        if collection_entry.get("artifact_ref") != collection_ref:
+            raise RuntimeContractError("Runtime Chart inventory is stale", code="STATE_VERSION_CONFLICT", rule="report_asset_integration")
+        inventory = chart_storage.read_asset_inventory(
+            artifact_ref=collection_ref,
+            inventory_ref=str(collection_entry.get("asset_inventory_ref", "")),
+            inventory_hash=str(collection_entry.get("asset_inventory_hash", "")),
+        )
+        svg_refs = {bundle["svg_ref"] for bundle in request.chart_bundle_collection.get("bundles", ()) if isinstance(bundle, Mapping)}
+        try:
+            svg_assets = {reference: inventory[reference].decode("utf-8") for reference in svg_refs}
+        except (KeyError, UnicodeDecodeError) as exc:
+            raise RuntimeContractError("Runtime Chart SVG assets are unavailable", code="ARTIFACT_MISSING", rule="report_asset_integration") from exc
+        return self._publish(request, svg_assets)
+
+    def _publish(self, request: ReportPublicationRequest, svg_assets: Mapping[str, str]) -> Mapping[str, Any]:
         projection_ref, collection_ref = self._validate_inputs(request)
         template = self._template(request.template_path)
-        key_hash, request_hash = self._request_hash(request, template)
-        assets, figures = self._chart_assets(request)
+        key_hash, request_hash = self._request_hash(request, template, svg_assets)
+        assets, figures = self._chart_assets(request, svg_assets)
         content = self._report_content(request, figures)
         before, after = template.split("<main>", 1)
         _discarded, closing = after.split("</main>", 1)
